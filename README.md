@@ -14,6 +14,10 @@ Open http://localhost:8080. Choose a name, create a conversation, and share its 
 
 For LAN testing, set `BLINK_ORIGIN` to the exact URL both devices use, such as `http://192.168.1.10:8080`. Use that URL on both devices; WebSocket origins are deliberately restricted. Plain HTTP cookies are for local development only.
 
+Give a chat an optional name, such as “Weekend plans,” to distinguish it in your list. Both participants see the same name and short chat code. Active chats and invitations waiting for a friend appear in separate groups, with the open chat highlighted. Switching chats keeps each invitation with its chat; refreshing returns to the selected chat. After a refresh, select **Create invitation** in a waiting chat to generate a fresh link.
+
+Only one person creates the chat. Their friend opens that chat's invitation and selects **Join chat**; creating another chat does not join the first one. Use `npm run test:rooms` to verify multiple chats, invitation isolation, notifications, and refresh selection with two browser identities.
+
 Messages remain until their selected unread TTL (1 minute, 5 minutes, 1 hour, or 24 hours). The first recipient view shortens availability to at most 10 more seconds. The sender's authorship counts as their view. Rooms and credentials expire after 24 hours. Invitations expire after 15 minutes and admit one additional identity. End chat clears content for both people.
 
 Bodies and drafts live only in page memory on the client. Refresh discards drafts. H2 retains active server data under `./data`; keep this directory private. Never place it inside static resources or commit it. Credentials and invitations are stored as SHA-256 digests of independent random 256-bit secrets.
@@ -39,7 +43,7 @@ npm run test:browser
 
 `GET /api/csrf` returns the CSRF header name and token. Send this header on every mutation and the STOMP CONNECT frame. `POST /api/guests` takes `displayName` and sets an HttpOnly guest cookie. `GET /api/me`, `PATCH /api/me`, and `POST /api/logout` inspect, rename, and revoke that identity.
 
-`GET/POST /api/rooms` lists/creates your rooms (creation takes `ttlSeconds`). `GET /api/rooms/{id}` returns an authorized snapshot, policy, participants, server time, revision, and up to 100 available messages. Page with `GET /api/rooms/{id}/messages?after={sequence}&revision={baseline}`; a changed revision returns `resynchronize`. `POST /api/rooms/{id}/invites` regenerates an invitation while waiting. `POST /api/invites/redeem` takes `secret`. `POST /api/rooms/{id}/close` ends the room. Health: `GET /api/health`.
+`GET/POST /api/rooms` lists/creates your rooms (creation takes `ttlSeconds` and an optional `title` of up to 40 characters). `GET /api/rooms/{id}` returns an authorized snapshot, policy, participants, server time, revision, and up to 100 available messages. Page with `GET /api/rooms/{id}/messages?after={sequence}&revision={baseline}`; a changed revision returns `resynchronize`. `POST /api/rooms/{id}/invites` regenerates an invitation while waiting. `POST /api/invites/redeem` takes `secret`. `POST /api/rooms/{id}/close` ends the room. Health: `GET /api/health`.
 
 Connect native WebSocket at `/ws`, STOMP 1.2, heartbeats every 10 seconds. Only subscribe to `/user/queue/events` and `/user/queue/errors`. Only send to `/app/chat.send`, `/app/chat.delivered`, `/app/chat.seen`, and `/app/chat.typing`. Send fields: `roomId`, `operationId`, `body`. Receipt fields: `roomId`, `messageId`. Typing fields: `roomId`, `typing`. Sender identity comes exclusively from authentication. Arbitrary subscriptions and direct broker sends are rejected.
 
