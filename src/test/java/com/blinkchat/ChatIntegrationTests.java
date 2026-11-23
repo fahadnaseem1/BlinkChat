@@ -92,6 +92,75 @@ class ChatIntegrationTests {
         secret = (String) ((Map<?, ?>) created.get("invite")).get("secret");
     }
 
+    @Test
+    void onlyCreatorCanCloseAndLeavingRevokesEveryAccessPath() {
+        join();
+        var message = send();
+        assertThatThrownBy(() -> chat.close(b, room)).isInstanceOfSatisfying(Problem.class, e ->
+            assertThat(e.status).isEqualTo(403)
+        );
+        chat.leave(b, room);
+        assertThat(chat.list(b)).isEmpty();
+        assertThat(chat.participants(room)).containsExactly(a.guestId());
+        assertThatThrownBy(() -> chat.snapshot(b, room, 0, null)).isInstanceOf(Problem.class);
+        assertThatThrownBy(() ->
+            chat.send(b, room, UUID.randomUUID().toString(), "no")
+        ).isInstanceOf(Problem.class);
+        assertThatThrownBy(() ->
+            chat.receipt(b, room, (String) message.get("id"), true)
+        ).isInstanceOf(Problem.class);
+        assertThat(chat.canPublishBody(b, room, (String) message.get("id"))).isFalse();
+        assertThatThrownBy(() -> chat.redeem(b, secret)).isInstanceOfSatisfying(Problem.class, e ->
+            assertThat(e.category).isEqualTo("already_left")
+        );
+        assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).hasSize(1);
+        assertThatThrownBy(this::send).isInstanceOf(Problem.class);
+    }
+
+    @Test
+    void creatorLeaveTransfersOwnershipAndRevokesInvitation() {
+        join();
+        chat.leave(a, room);
+        assertThat(chat.list(a)).isEmpty();
+        assertThat(
+            ((Map<?, ?>) chat.snapshot(b, room, 0, null).get("room")).get("creatorId")
+        ).isEqualTo(b.guestId());
+        assertThatThrownBy(() -> chat.previewInvitation(secret)).isInstanceOf(Problem.class);
+        String replacement = (String) chat.invite(b, room).get("secret");
+        var c = identity.establish(null, "New friend").principal();
+        chat.redeem(c, replacement);
+        assertThat(chat.participants(room)).containsExactly(b.guestId(), c.guestId());
+        chat.send(c, room, UUID.randomUUID().toString(), "new audience");
+        chat.close(b, room);
+    }
+
+    @Test
+    void leavingFinalMemberClosesAndErasesChat() {
+        join();
+        var m = send();
+        chat.leave(b, room);
+        chat.leave(a, room);
+        assertThat(chat.participants(room)).isEmpty();
+        assertThatThrownBy(() -> chat.previewInvitation(secret)).isInstanceOf(Problem.class);
+        new TransactionTemplate(txManager).executeWithoutResult(tx -> {
+            assertThat(db.find(MessageContent.class, (String) m.get("id"))).isNull();
+        });
+    }
+
+    @Test
+    void customReadGraceIsValidatedAndCannotExtendUnreadDeadline() {
+        var created = chat.create(a, 60, "Countdown", 30L);
+        String id = (String) ((Map<?, ?>) created.get("room")).get("id");
+        chat.redeem(b, (String) ((Map<?, ?>) created.get("invite")).get("secret"));
+        var m = chat.send(a, id, UUID.randomUUID().toString(), "hello");
+        clock.time = clock.time.plusSeconds(45);
+        var viewed = chat.receipt(b, id, (String) m.get("id"), true);
+        assertThat(viewed.get("disappearsAt")).isEqualTo(m.get("disappearsAt"));
+        assertThat(((Map<?, ?>) created.get("room")).get("readGraceSeconds")).isEqualTo(30L);
+        assertThatThrownBy(() -> chat.create(a, 60, "Invalid", -1L)).isInstanceOf(Problem.class);
+        assertThatThrownBy(() -> chat.create(a, 60, "Invalid", 11L)).isInstanceOf(Problem.class);
+    }
+
     void join() {
         chat.redeem(b, secret);
     }
@@ -366,7 +435,7 @@ class ChatIntegrationTests {
     void closureRemovesBodiesAndOldRetryOnlyReturnsMetadata() {
         join();
         var m = send();
-        chat.close(b, room);
+        chat.close(a, room);
         assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).isEmpty();
         assertThat(chat.send(a, room, (String) m.get("operationId"), "retry")).doesNotContainKey(
             "body"
