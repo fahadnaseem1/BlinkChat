@@ -35,6 +35,40 @@ jobs:
                   chmod +x gradlew
                   ./gradlew test bootJar --no-daemon
 
+            - name: Install Node
+              uses: actions/setup-node@v6
+              with:
+                  node-version: '22'
+                  cache: npm
+
+            - name: Install browser test dependencies
+              run: |
+                  npm ci
+                  npx playwright install --with-deps chromium
+
+            - name: Run browser suites
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  java -jar build/libs/BlinkChat-0.0.1-SNAPSHOT.jar --spring.datasource.url=jdbc:h2:mem:browser-ci > /tmp/blinkchat-browser.log 2>&1 &
+                  APP_PID=$!
+                  trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
+                  for attempt in {1..60}; do
+                    if curl --fail --silent http://localhost:8080/api/health > /dev/null; then break; fi
+                    sleep 1
+                  done
+                  curl --fail --silent http://localhost:8080/api/health
+                  npm run test:all
+
+            - name: Upload browser diagnostics
+              if: failure()
+              uses: actions/upload-artifact@v6
+              with:
+                  name: browser-diagnostics
+                  path: |
+                      /tmp/blinkchat-browser.log
+                      test-results/
+
             - name: Build the Docker image
               run: docker build --tag blinkchat:ci .
 
