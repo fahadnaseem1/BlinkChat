@@ -34,7 +34,7 @@ public class ChatRepository {
 
     public List<Membership> members(String room) {
         return em
-            .createQuery("from Membership where roomId=:r order by slot", Membership.class)
+            .createQuery("from Membership where roomId=:r and leftAt is null order by slot", Membership.class)
             .setParameter("r", room)
             .getResultList();
     }
@@ -42,7 +42,7 @@ public class ChatRepository {
     public List<Room> rooms(String guest) {
         return em
             .createQuery(
-                "select r from Room r where r.id in (select m.roomId from Membership m where m.guestId=:g) order by r.createdAt desc",
+                "select r from Room r where r.id in (select m.roomId from Membership m where m.guestId=:g and m.leftAt is null) order by r.createdAt desc",
                 Room.class
             )
             .setParameter("g", guest)
