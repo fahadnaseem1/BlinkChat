@@ -1268,16 +1268,6 @@ header .chat-code {
     color: #707689;
     gap: 12px;
 }
-.message-timer {
-    font-variant-numeric: tabular-nums;
-}
-.message-timer.expiring {
-    color: #9c3d1c;
-    font-weight: 700;
-    background: #fff0e8;
-    border-radius: 5px;
-    padding: 2px 5px;
-}
 .members-list strong {
     flex: 1;
 }

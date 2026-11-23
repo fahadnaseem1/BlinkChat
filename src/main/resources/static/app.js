@@ -363,14 +363,6 @@ function senderColor(id) {
     return `sender-color-${Math.abs(hash) % 6}`;
 }
 
-function updateTimer(element) {
-    const seconds = Math.max(0, Math.ceil((Date.parse(element.dataset.deadline) - now()) / 1000));
-    element.textContent =
-        seconds <= 10 ? `◷ ${seconds}s left` : `◷ ${remaining(element.dataset.deadline)}`;
-    element.classList.toggle('expiring', seconds <= 10);
-    element.setAttribute('aria-label', `Message disappears in ${seconds} seconds`);
-}
-
 // Delivery means received; seen requires the visibility observer to confirm a view.
 let visibility = observeVisible($('messages'), (id) => {
     const m = messages.get(id);
@@ -462,11 +454,6 @@ function render() {
                       minute: '2-digit',
                   });
         meta.append(status);
-        const timer = document.createElement('span');
-        timer.dataset.deadline = m.disappearsAt;
-        timer.className = 'message-timer';
-        updateTimer(timer);
-        meta.append(timer);
         if (m.senderId !== me.id && room.participants.length > 2) {
             const name =
                 room.participants.find((p) => p.id === m.senderId)?.displayName || 'Group member';
@@ -1366,9 +1353,6 @@ setInterval(() => {
     }
     if (changed) {
         render();
-    }
-    for (const el of document.querySelectorAll('[data-deadline]')) {
-        updateTimer(el);
     }
     showInvite();
     updateRoomWarning();
