@@ -65,9 +65,9 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             await page.evaluate(() => navigator.clipboard.readText()),
             await page.locator('#invite-link').inputValue(),
         );
-        await page.locator('#waiting summary').click();
+        await page.locator('#waiting .invite-help summary').click();
         assert.equal(await page.locator('#regenerate').isVisible(), true);
-        await page.locator('#waiting summary').click();
+        await page.locator('#waiting .invite-help summary').click();
 
         assert.equal(await page.locator('#end').isVisible(), false);
         await page.locator('#chat-options').click();
