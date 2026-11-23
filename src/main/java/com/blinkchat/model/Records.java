@@ -50,7 +50,8 @@ public final class Records {
         public Instant createdAt;
         public Instant expiresAt;
         public Instant closedAt;
-        public long ttlSeconds;
+        // Legacy H2 columns remain mapped for existing file-backed databases; neither affects retention.
+        public long ttlSeconds = 86400;
         public long graceSeconds;
         public long revision;
         public long nextSequence = 1;
@@ -129,8 +130,6 @@ public final class Records {
         public long sequence;
 
         public Instant acceptedAt;
-        public Instant hardExpiry;
-        public Instant disappearsAt;
         public Instant deliveredAt;
         public Instant seenAt;
         public Instant removedAt;

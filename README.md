@@ -1,6 +1,6 @@
 # BlinkChat
 
-A private, temporary group chat built with Java 21, Spring Boot 4.2.0, file-based H2, STOMP over native WebSocket, and vanilla browser modules. The browser client is bundled locally: @stomp/stompjs 7.2.1 (Apache-2.0). Gradle wrapper: 9.9.2. Spring Boot manages server dependency versions.
+A private group chat built with Java 21, Spring Boot 4.2.0, file-based H2, STOMP over native WebSocket, and vanilla browser modules. Messages remain available until their room ends. The browser client is bundled locally: @stomp/stompjs 7.2.1 (Apache-2.0). Gradle wrapper: 9.9.2. Spring Boot manages server dependency versions.
 
 ## Run locally
 
@@ -18,9 +18,9 @@ Give a chat an optional name, such as “Weekend plans,” to distinguish it in 
 
 Only one person creates the chat. Their friend opens that chat's invitation and selects **Join chat**; creating another chat does not join the first one. Use `npm run test:rooms` to verify multiple chats, invitation isolation, notifications, and refresh selection with two browser identities.
 
-Messages remain until their selected unread TTL (1 minute, 5 minutes, 1 hour, or 24 hours). Once all original recipients have viewed a message, its availability shortens to the room’s selected read countdown (10 seconds by default). Rooms and credentials expire after 24 hours. Invitations expire after 15 minutes and can admit multiple guests, up to the room limit. Only the creator can end a chat for everyone; members can leave independently.
+Messages stay available until the creator ends the chat or the room reaches its 24-hour limit. Each chat can retain up to 200 messages. Ending a chat removes its messages. Invitations expire after 15 minutes and can admit multiple guests, up to the room limit. Only the creator can end a chat for everyone; members can leave independently.
 
-Bodies and drafts live only in page memory on the client. Refresh discards drafts. H2 retains active server data under `./data`; keep this directory private. Never place it inside static resources or commit it. Credentials and invitations are stored as SHA-256 digests of independent random 256-bit secrets.
+Drafts live only in page memory on the client, so refresh discards them. Message bodies are retained by the server until the room ends. H2 retains active server data under `./data`; keep this directory private. Never place it inside static resources or commit it. Credentials and invitations are stored as SHA-256 digests of independent random 256-bit secrets.
 
 ## Verify
 
@@ -29,7 +29,7 @@ Bodies and drafts live only in page memory on the client. Refresh discards draft
 java -jar build/libs/BlinkChat-0.0.1-SNAPSHOT.jar
 ```
 
-Integration tests use an isolated in-memory database and controllable clock. They cover concurrent invitation claims, concurrent send retries, membership isolation, credential expiry/revocation, delivery versus viewing, non-extending deadlines, expired-body filtering before cleanup, physical deletion, closure, pagination revisions, Unicode limits, HTTP authentication, and CSRF.
+Integration tests use an isolated in-memory database and controllable clock. They cover concurrent invitation claims, concurrent send retries, membership isolation, credential expiry/revocation, delivery versus viewing, room-end message retention, physical deletion after closure, pagination revisions, Unicode limits, HTTP authentication, and CSRF.
 
 The optional browser test requires Node and Playwright. It uses independent browser contexts and fictional content, checks a 360px viewport, and exercises the full conversation lifecycle. Start the application first:
 
@@ -51,13 +51,13 @@ The UX check covers invitation previews without joining, returning guest names, 
 
 `GET /api/csrf` returns the CSRF header name and token. Send this header on every mutation and the STOMP CONNECT frame. `POST /api/guests` takes `displayName` and sets an HttpOnly guest cookie. `GET /api/me`, `PATCH /api/me`, and `POST /api/logout` inspect, rename, and revoke that identity.
 
-`GET/POST /api/rooms` lists/creates your rooms (creation takes `ttlSeconds`, an optional `title` of up to 40 characters, and optional `readGraceSeconds` of 10, 30, or 60). `GET /api/rooms/{id}` returns an authorized snapshot, policy, participants, server time, revision, and up to 100 available messages. Page with `GET /api/rooms/{id}/messages?after={sequence}&revision={baseline}`; a changed revision returns `resynchronize`. `POST /api/rooms/{id}/invites` regenerates an invitation while waiting. `POST /api/invites/preview` takes `secret` and returns only chat metadata without creating an identity or membership; it requires CSRF even before guest entry. `POST /api/invites/redeem` takes `secret`. `GET /api/rooms/{id}/operations/{operationId}` checks whether the authenticated guest’s send was accepted; expired accepted sends return metadata without a body. `POST /api/rooms/{id}/close` ends the room for everyone (creator only). `POST /api/rooms/{id}/leave` revokes the current guest’s membership. Health: `GET /api/health`.
+`GET/POST /api/rooms` lists/creates your rooms (creation takes an optional `title` of up to 40 characters). `GET /api/rooms/{id}` returns an authorized snapshot, policy, participants, server time, revision, and up to 100 available messages. Page with `GET /api/rooms/{id}/messages?after={sequence}&revision={baseline}`; a changed revision returns `resynchronize`. `POST /api/rooms/{id}/invites` regenerates an invitation while waiting. `POST /api/invites/preview` takes `secret` and returns only chat metadata without creating an identity or membership; it requires CSRF even before guest entry. `POST /api/invites/redeem` takes `secret`. `GET /api/rooms/{id}/operations/{operationId}` checks whether the authenticated guest’s send was accepted; ended rooms return metadata without a body. `POST /api/rooms/{id}/close` ends the room for everyone (creator only). `POST /api/rooms/{id}/leave` revokes the current guest’s membership. Health: `GET /api/health`.
 
 Connect native WebSocket at `/ws`, STOMP 1.2, heartbeats every 10 seconds. Only subscribe to `/user/queue/events` and `/user/queue/errors`. Only send to `/app/chat.send`, `/app/chat.delivered`, `/app/chat.seen`, and `/app/chat.typing`. Send fields: `roomId`, `operationId`, `body`. Receipt fields: `roomId`, `messageId`. Typing fields: `roomId`, `typing`. Sender identity comes exclusively from authentication. Arbitrary subscriptions and direct broker sends are rejected.
 
 Events carry `type`, `roomId`, `revision`, `serverTime`, and `data`. Durable types are `room.updated`, `message.accepted`, `message.delivered`, `message.seen`, `message.removed`, `room.left`, and `room.closed`. Transient types are `presence.changed` and `typing.changed`. Acceptance includes the operation ID. Errors contain a category, safe message, and correlation ID.
 
-Durable changes use a room-row lock and publish after commit. Retries never recreate expired content. Snapshots replace the active message set; revision gaps, reconnects, focus restoration, and a 30-second foreground check trigger reconciliation. This provides durable acceptance and eventual repair, without promising exactly-once socket delivery.
+Durable changes use a room-row lock and publish after commit. Retries cannot restore message content after the room ends. Snapshots replace the active message set; revision gaps, reconnects, focus restoration, and a 30-second foreground check trigger reconciliation. This provides durable acceptance and eventual repair, without promising exactly-once socket delivery.
 
 ## Deploy to Render through GitHub
 
@@ -67,7 +67,7 @@ Follow the complete [Render deployment guide](docs/RENDER_DEPLOYMENT.md) for Git
 
 For local containers, copy `.env.example` to `.env`, set a generated database password, and run `docker compose up --build -d`. Open `http://localhost:8080`. Native `./gradlew bootRun` remains available without Docker.
 
-Limits and timings bind under `blink.*` in Spring configuration (`room-lifetime`, `credential-lifetime`, `invite-lifetime`, `read-grace`, `metadata-retention`, `max-rooms`, `max-messages`, `max-sends`, `sends-per-minute`, `max-connections`, `cleanup-ms`). Defaults follow the build guide. Content cleanup runs every 5 seconds; content-free operation metadata remains until one hour after a room ends. Availability checks do not rely on cleanup timing.
+Limits and timings bind under `blink.*` in Spring configuration (`room-lifetime`, `credential-lifetime`, `invite-lifetime`, `metadata-retention`, `max-rooms`, `max-messages`, `max-sends`, `sends-per-minute`, `max-connections`, `cleanup-ms`). Messages stay available until the creator ends the room or its 24-hour lifetime expires. Content cleanup runs every 5 seconds; content-free operation metadata remains until one hour after a room ends. Availability checks do not rely on cleanup timing.
 
 ## Privacy and release verification
 
@@ -81,7 +81,7 @@ Members can **Leave chat** without ending the conversation for others. Leaving c
 
 Only the creator can **End for everyone**. If the creator leaves, ownership passes to the earliest remaining member and the previous invitation is revoked. The new creator can generate a new invitation. When the last member leaves, the room closes and its message content is removed.
 
-New chats offer a read countdown of 10 seconds (default), 30 seconds, or 1 minute. This countdown starts after every original recipient views a message, and never extends the unread deadline or room lifetime. Messages show a small timestamp and delivery ticks. Tap a message for per-person receipts. Messages disappear automatically without a visible countdown. New chats use a 10-second read countdown and a 1-hour unread lifetime by default; expand **Message settings** during creation to choose different timers.
+Messages show a small timestamp and delivery ticks. Tap a message for per-person receipts. Read and delivery status never remove message content; messages remain available until the room ends.
 
 One invitation sheet provides Copy link, Share, and an expandable QR code. Link replacement lives under **Chat details → Invitation**. Inside the QR section, Share QR sends the PNG image when file sharing is supported; Save QR downloads it otherwise. No invitation is sent to an external QR service. The bundled QR encoder comes from `qrcode-terminal` 0.12.0; attribution and licensing are in `src/main/resources/static/vendor/QR-LICENSE.txt`.
 

@@ -1,7 +1,6 @@
 package com.blinkchat.config;
 
 import java.time.*;
-import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.*;
 
@@ -13,7 +12,6 @@ public class Policy {
     public Duration roomLifetime = Duration.ofHours(24);
     public Duration credentialLifetime = Duration.ofHours(24);
     public Duration inviteLifetime = Duration.ofMinutes(15);
-    public Duration readGrace = Duration.ofSeconds(10);
     public Duration metadataRetention = Duration.ofHours(1);
     public int maxRooms = 5;
     public int maxMessages = 200;
@@ -23,8 +21,6 @@ public class Policy {
     public int maxParticipants = 20;
     public boolean secureCookie = false;
     public String origin = "http://localhost:8080";
-    public Set<Long> ttls = Set.of(60L, 300L, 3600L, 86400L);
-
     public void setOrigin(String origin) {
         this.origin = origin;
     }
@@ -43,10 +39,6 @@ public class Policy {
 
     public void setInviteLifetime(Duration inviteLifetime) {
         this.inviteLifetime = inviteLifetime;
-    }
-
-    public void setReadGrace(Duration readGrace) {
-        this.readGrace = readGrace;
     }
 
     public void setMetadataRetention(Duration metadataRetention) {

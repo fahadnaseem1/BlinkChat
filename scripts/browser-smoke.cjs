@@ -66,22 +66,21 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         );
         console.log('PASS: private invitation, real-time delivery, Seen, safe text, 360px layout');
 
-        await second.waitForFunction(
-            () => !document.querySelector('#messages').textContent.includes('A fictional moment'),
-            {},
-            { timeout: 16000 },
-        );
         await second.reload();
         await second.waitForFunction(
             () => document.querySelector('#connection').dataset.state === 'ready',
         );
-        assert.ok(!(await second.locator('#messages').textContent()).includes(text));
-        console.log('PASS: read expiry and refresh cannot restore content');
+        await second.getByText(text, { exact: true }).waitFor();
+        console.log('PASS: messages persist across refresh until the room ends');
 
         await first.locator('#chat-options').click();
         await first.locator('#end').click();
         await first.locator('#confirm-end').click();
         await second.getByText('This moment has passed.', { exact: true }).waitFor();
+        await second.waitForFunction(
+            () => !document.querySelector('#messages').textContent.includes('A fictional moment'),
+        );
+        assert.ok(!(await second.locator('#messages').textContent()).includes(text));
         assert.deepEqual(errors, []);
         console.log('PASS: closure reaches both browsers; no browser script errors');
 

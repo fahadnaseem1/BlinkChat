@@ -10,7 +10,7 @@ import java.util.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Enforces membership, frozen message audiences, and expiry within room transactions. */
+/** Enforces membership, frozen message audiences, and room-end retention transactionally. */
 @Service
 @Transactional
 public class ChatService {
@@ -83,19 +83,8 @@ public class ChatService {
         db.save(m);
     }
 
-    public Map<String, Object> create(GuestPrincipal p, long ttl) {
-        return create(p, ttl, null);
-    }
-
-    public Map<String, Object> create(GuestPrincipal p, long ttl, String title) {
-        return create(p, ttl, title, null);
-    }
-
-    public Map<String, Object> create(GuestPrincipal p, long ttl, String title, Long grace) {
+    public Map<String, Object> create(GuestPrincipal p, String title) {
         identity.require(p);
-        if (grace != null && !Set.of(10L, 30L, 60L).contains(grace)) {
-            throw Problem.invalid("Choose a read countdown of 10, 30, or 60 seconds.");
-        }
         if (title != null) {
             title = title.strip();
             if (
@@ -109,9 +98,6 @@ public class ChatService {
                 throw Problem.invalid("Use up to 40 visible characters for the chat name.");
             }
         }
-        if (!policy.ttls.contains(ttl)) {
-            throw Problem.invalid("Choose a supported message lifetime.");
-        }
         capacity(p);
         Room r = new Room();
         r.id = UUID.randomUUID().toString();
@@ -120,8 +106,6 @@ public class ChatService {
         r.state = "waiting";
         r.createdAt = clock.instant();
         r.expiresAt = r.createdAt.plus(policy.roomLifetime);
-        r.ttlSeconds = ttl;
-        r.graceSeconds = grace == null ? policy.readGrace.toSeconds() : grace;
         r.revision = 1;
         db.save(r);
         member(r, p.guestId(), 1);
@@ -174,10 +158,6 @@ public class ChatService {
             db.members(room.id).size(),
             "maxParticipants",
             policy.maxParticipants,
-            "ttlSeconds",
-            room.ttlSeconds,
-            "readGraceSeconds",
-            room.graceSeconds,
             "roomExpiresAt",
             room.expiresAt,
             "inviteExpiresAt",
@@ -298,8 +278,6 @@ public class ChatService {
         out.put("state", live(r) ? r.state : r.closedAt == null ? "expired" : "closed");
         out.put("participants", members);
         out.put("expiresAt", r.expiresAt);
-        out.put("ttlSeconds", r.ttlSeconds);
-        out.put("readGraceSeconds", r.graceSeconds);
         out.put("revision", r.revision);
         return out;
     }
@@ -347,7 +325,7 @@ public class ChatService {
         if (operation == null || !operation.matches("[A-Za-z0-9-]{16,80}")) {
             throw Problem.invalid("A valid operation identifier is required.");
         }
-        // Retrying an operation returns its original result, even after its body has expired.
+        // Retrying an operation returns its original result without creating a duplicate.
         MessageRecord old = db.operation(room, p.guestId(), operation);
         if (old != null) {
             Map<String, Object> v = view(r, old, p.guestId());
@@ -366,13 +344,13 @@ public class ChatService {
             db
                 .messages(room)
                 .stream()
-                .filter(m -> available(r, m))
+                .filter(m -> m.removedAt == null)
                 .count() >= policy.maxMessages
         ) {
             throw new Problem(
                 409,
                 "capacity_reached",
-                "Message capacity reached. Wait for messages to disappear."
+                "This chat has reached its " + policy.maxMessages + "-message limit."
             );
         }
         rates.check("send:" + p.guestId(), policy.sendsPerMinute + 5);
@@ -383,8 +361,6 @@ public class ChatService {
         m.operationId = operation;
         m.sequence = r.nextSequence++;
         m.acceptedAt = clock.instant();
-        m.hardExpiry = min(m.acceptedAt.plusSeconds(r.ttlSeconds), r.expiresAt);
-        m.disappearsAt = m.hardExpiry;
         m.revision = ++r.revision;
         r.acceptedCount++;
         db.save(m);
@@ -426,18 +402,17 @@ public class ChatService {
             receipt.seenAt = clock.instant();
             changed = true;
         }
-        // Later joins never change this frozen audience or extend an existing deadline.
+        // Later joins never change this frozen audience.
         if (
             m.seenAt == null &&
             !audience.isEmpty() &&
             audience.stream().allMatch(a -> a.seenAt != null)
         ) {
             m.seenAt = clock.instant();
-            m.disappearsAt = min(m.hardExpiry, m.seenAt.plusSeconds(r.graceSeconds));
         }
         if (changed) {
             m.revision = ++r.revision;
-            emitMessage(r, m, seen ? "message.seen" : "message.delivered", metadata(m));
+            emitMessage(r, m, seen ? "message.seen" : "message.delivered", metadata(r, m));
         }
         return view(r, m, p.guestId());
     }
@@ -505,10 +480,10 @@ public class ChatService {
     }
 
     private boolean available(Room r, MessageRecord m) {
-        return live(r) && m.removedAt == null && m.disappearsAt.isAfter(clock.instant());
+        return live(r) && m.removedAt == null;
     }
 
-    private Map<String, Object> metadata(MessageRecord m) {
+    private Map<String, Object> metadata(Room r, MessageRecord m) {
         List<MessageRecipient> recipients = db.recipients(m.id);
         Map<String, Object> v = new LinkedHashMap<>();
         v.put("id", m.id);
@@ -517,7 +492,7 @@ public class ChatService {
         v.put("operationId", m.operationId);
         v.put("sequence", m.sequence);
         v.put("acceptedAt", m.acceptedAt);
-        v.put("disappearsAt", m.disappearsAt);
+        v.put("roomEndsAt", r.expiresAt);
         v.put("deliveredAt", m.deliveredAt);
         v.put("seenAt", m.seenAt);
         v.put("revision", m.revision);
@@ -563,7 +538,7 @@ public class ChatService {
     }
 
     private Map<String, Object> view(Room r, MessageRecord m, String guest) {
-        Map<String, Object> v = metadata(m);
+        Map<String, Object> v = metadata(r, m);
         boolean a = available(r, m) && eligible(m, guest);
         MessageContent c = a ? db.find(MessageContent.class, m.id) : null;
         v.put("available", a && c != null);
@@ -696,7 +671,7 @@ public class ChatService {
         return db
             .entityManager()
             .createQuery(
-                "select r.id from Room r where r.closedAt<=:purge or r.expiresAt<=:purge or (r.expiresAt<=:now and r.state<>'expired') or exists (select m.id from MessageRecord m where m.roomId=r.id and m.removedAt is null and m.disappearsAt<=:now)",
+                "select r.id from Room r where r.closedAt<=:purge or r.expiresAt<=:purge or (r.expiresAt<=:now and r.state<>'expired')",
                 String.class
             )
             .setParameter("now", clock.instant())
@@ -734,12 +709,6 @@ public class ChatService {
                     db.entityManager().createQuery(query).setParameter("r", id).executeUpdate();
                 }
                 db.entityManager().remove(r);
-            }
-        } else {
-            for (MessageRecord m : db.messages(id)) {
-                if (!m.disappearsAt.isAfter(clock.instant())) {
-                    remove(r, m, m.seenAt == null ? "ttl_expired" : "read_complete");
-                }
             }
         }
     }

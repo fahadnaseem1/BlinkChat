@@ -38,7 +38,7 @@ public class ApiController {
 
     public record Name(String displayName) {}
 
-    public record Create(long ttlSeconds, String title, Long readGraceSeconds) {}
+    public record Create(String title) {}
 
     public record Invite(String secret) {}
 
@@ -118,7 +118,7 @@ public class ApiController {
 
     @PostMapping("/rooms")
     public Object create(@AuthenticationPrincipal GuestPrincipal p, @RequestBody Create c) {
-        return chat.create(p, c.ttlSeconds(), c.title(), c.readGraceSeconds());
+        return chat.create(p, c.title());
     }
 
     @GetMapping({ "/rooms/{id}", "/rooms/{id}/messages" })

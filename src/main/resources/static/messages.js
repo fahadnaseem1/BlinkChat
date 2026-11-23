@@ -58,7 +58,7 @@ export function renderMessages({
         return;
     }
     const current = [...messages.values()]
-        .filter((m) => m.body && Date.parse(m.disappearsAt) > now())
+        .filter((m) => m.body && Date.parse(m.roomEndsAt) > now())
         .sort((a, b) => a.sequence - b.sequence);
     const roomPending = [...pending].filter(([, item]) => item.roomId === room.id);
     if (!current.length && !roomPending.length) {

@@ -518,9 +518,6 @@ header {
     color: var(--muted);
     font-weight: 400;
 }
-.meta .message-timer.expiring {
-    color: #b02942;
-}
 .typing {
     min-height: 20px;
     flex-shrink: 0;
@@ -945,10 +942,6 @@ dialog p,
     display: block;
     margin: 10px 0;
 }
-#message-settings {
-    margin-top: 14px;
-}
-#message-settings summary,
 #invite-management summary {
     color: var(--muted);
     font-size: 13px;

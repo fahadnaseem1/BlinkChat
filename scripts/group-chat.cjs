@@ -1,4 +1,4 @@
-// Start BlinkChat before running this group invitation and message expiry check.
+// Start BlinkChat before running this group invitation and retention check.
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
 const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
@@ -88,9 +88,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         const before = await waitForViews(1);
         assert.equal(before.messages[0].recipientCount, 2);
         assert.equal(before.messages[0].seenAt, null);
-        assert.ok(
-            Date.parse(before.messages[0].disappearsAt) - Date.parse(before.serverTime) > 30000,
-        );
+        assert.equal(before.messages[0].roomEndsAt, before.room.expiresAt);
 
         const later = await browser.newContext();
         const csrf = await (await later.request.get(origin + '/api/csrf')).json();
@@ -122,15 +120,13 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         });
         await riley.getByText('A fictional message for our group', { exact: true }).waitFor();
         const after = await waitForViews(2);
-        assert.ok(after.messages[0].seenAt, 'All original viewers must start the grace period');
+        assert.ok(after.messages[0].seenAt, 'All original viewers must be recorded as seen');
         assert.equal(
             after.messages[0].recipientCount,
             2,
             'Later joins must not extend the original audience',
         );
-        assert.ok(
-            Date.parse(after.messages[0].disappearsAt) - Date.parse(after.serverTime) <= 10000,
-        );
+        assert.equal(after.messages[0].roomEndsAt, after.room.expiresAt);
         assert.equal(await riley.locator('.message-timer').count(), 0);
         await riley.locator('.bubble').first().click();
         assert.equal(await riley.locator('#receipts-expiry').count(), 0);
@@ -145,25 +141,25 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
                 path: process.env.BLINK_SCREENSHOT_DIR + '/group-mobile.png',
             });
         }
-        await riley.waitForFunction(
-            () =>
-                !document
-                    .querySelector('#messages')
-                    .textContent.includes('A fictional message for our group'),
-            {},
-            { timeout: 16000 },
+        await riley.waitForTimeout(11000);
+        assert.ok(
+            (await riley.locator('#messages').textContent()).includes(
+                'A fictional message for our group',
+            ),
+            'Messages stay available after all original recipients view them',
         );
         await riley.reload();
         await riley.waitForFunction(
             () => document.querySelector('#connection').dataset.state === 'ready',
         );
         assert.ok(
-            !(await riley.locator('#messages').textContent()).includes(
+            (await riley.locator('#messages').textContent()).includes(
                 'A fictional message for our group',
             ),
+            'Messages stay available after refresh until the room ends',
         );
         console.log(
-            'PASS: group-wide expiry after all original viewers, mobile fit, and refresh without resurrection',
+            'PASS: messages stay available after viewing, mobile fit, and refresh',
         );
 
         await riley.locator('#draft').fill('Riley joins the conversation');

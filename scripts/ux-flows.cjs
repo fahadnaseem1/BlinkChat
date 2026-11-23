@@ -95,7 +95,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             .getByText('Weekend plans', { exact: true })
             .waitFor();
         assert.match(await second.locator('#preview-people').textContent(), /1 of 20 people/);
-        assert.match(await second.locator('#preview-policy').textContent(), /10s/);
+        assert.match(await second.locator('#preview-policy').textContent(), /stay until the chat ends/i);
         assert.equal(
             (await snapshot(picnic.id)).room.participants.length,
             1,

@@ -87,7 +87,7 @@ class ChatIntegrationTests {
         clock.time = Instant.parse("2026-11-23T00:00:00Z");
         a = identity.establish(null, "Same Name").principal();
         b = identity.establish(null, "Same Name").principal();
-        Map<String, Object> created = chat.create(a, 3600);
+        Map<String, Object> created = chat.create(a, null);
         room = (String) ((Map<?, ?>) created.get("room")).get("id");
         secret = (String) ((Map<?, ?>) created.get("invite")).get("secret");
     }
@@ -148,17 +148,35 @@ class ChatIntegrationTests {
     }
 
     @Test
-    void customReadGraceIsValidatedAndCannotExtendUnreadDeadline() {
-        var created = chat.create(a, 60, "Countdown", 30L);
+    void messagesStayUntilRoomEndsRegardlessOfReceipts() {
+        var created = chat.create(a, "Long-lived messages");
         String id = (String) ((Map<?, ?>) created.get("room")).get("id");
+        Instant roomEndsAt = (Instant) ((Map<?, ?>) created.get("room")).get("expiresAt");
         chat.redeem(b, (String) ((Map<?, ?>) created.get("invite")).get("secret"));
         var m = chat.send(a, id, UUID.randomUUID().toString(), "hello");
-        clock.time = clock.time.plusSeconds(45);
+        assertThat(m.get("roomEndsAt")).isEqualTo(roomEndsAt);
+        clock.time = clock.time.plusSeconds(3601);
         var viewed = chat.receipt(b, id, (String) m.get("id"), true);
-        assertThat(viewed.get("disappearsAt")).isEqualTo(m.get("disappearsAt"));
-        assertThat(((Map<?, ?>) created.get("room")).get("readGraceSeconds")).isEqualTo(30L);
-        assertThatThrownBy(() -> chat.create(a, 60, "Invalid", -1L)).isInstanceOf(Problem.class);
-        assertThatThrownBy(() -> chat.create(a, 60, "Invalid", 11L)).isInstanceOf(Problem.class);
+        assertThat(viewed.get("roomEndsAt")).isEqualTo(roomEndsAt);
+        assertThat((List<?>) chat.snapshot(b, id, 0, null).get("messages")).hasSize(1);
+    }
+
+    @Test
+    void seenMessagesStillCountTowardTheRoomLimit() {
+        join();
+        policy.maxMessages = 1;
+        try {
+            var message = send();
+            chat.receipt(b, room, (String) message.get("id"), true);
+            assertThatThrownBy(() ->
+                chat.send(a, room, UUID.randomUUID().toString(), "second message")
+            ).isInstanceOfSatisfying(Problem.class, e ->
+                assertThat(e.category).isEqualTo("capacity_reached")
+            );
+            assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).hasSize(1);
+        } finally {
+            policy.maxMessages = 200;
+        }
     }
 
     void join() {
@@ -178,7 +196,7 @@ class ChatIntegrationTests {
 
     @Test
     void chatNamesAndCodesMatchForBothParticipants() {
-        var created = chat.create(a, 3600, "  Weekend plans  ");
+        var created = chat.create(a, "  Weekend plans  ");
         var details = (Map<?, ?>) created.get("room");
         String namedRoom = (String) details.get("id");
         var invitation = (Map<?, ?>) created.get("invite");
@@ -195,8 +213,8 @@ class ChatIntegrationTests {
     @Test
     void invalidChatNamesDoNotAllocateRooms() {
         int count = chat.list(a).size();
-        assertThatThrownBy(() -> chat.create(a, 3600, "a".repeat(41))).isInstanceOf(Problem.class);
-        assertThatThrownBy(() -> chat.create(a, 3600, "Misleading\nname")).isInstanceOf(
+        assertThatThrownBy(() -> chat.create(a, "a".repeat(41))).isInstanceOf(Problem.class);
+        assertThatThrownBy(() -> chat.create(a, "Misleading\nname")).isInstanceOf(
             Problem.class
         );
         assertThat(chat.list(a)).hasSize(count);
@@ -277,29 +295,30 @@ class ChatIntegrationTests {
     }
 
     @Test
-    void groupReadGraceStartsAfterAllOriginalRecipientsHaveViewed() {
+    void groupMessagesRemainAfterAllOriginalRecipientsHaveViewed() {
         join();
         GuestPrincipal c = identity.establish(null, "Third").principal();
         chat.redeem(c, secret);
+        Instant roomEndsAt = (Instant) ((Map<?, ?>) chat.summary(chat.authorized(a, room)))
+            .get("expiresAt");
         var message = send();
         String id = (String) message.get("id");
         assertThat(message.get("recipientCount")).isEqualTo(2);
+        assertThat(message.get("roomEndsAt")).isEqualTo(roomEndsAt);
         var first = chat.receipt(b, room, id, true);
         assertThat(first.get("seenCount")).isEqualTo(1L);
         assertThat(first.get("seenAt")).isNull();
-        assertThat(first.get("disappearsAt")).isEqualTo(message.get("disappearsAt"));
+        assertThat(first.get("roomEndsAt")).isEqualTo(roomEndsAt);
         clock.time = clock.time.plusSeconds(20);
         assertThat((List<?>) chat.snapshot(c, room, 0, null).get("messages")).hasSize(1);
         var last = chat.receipt(c, room, id, true);
         assertThat(last.get("seenCount")).isEqualTo(2L);
-        assertThat(last.get("disappearsAt")).isEqualTo(clock.time.plusSeconds(10));
+        assertThat(last.get("roomEndsAt")).isEqualTo(roomEndsAt);
         clock.time = clock.time.plusSeconds(4);
-        assertThat(chat.receipt(b, room, id, true).get("disappearsAt")).isEqualTo(
-            last.get("disappearsAt")
-        );
+        assertThat(chat.receipt(b, room, id, true).get("roomEndsAt")).isEqualTo(roomEndsAt);
         clock.time = clock.time.plusSeconds(7);
         for (GuestPrincipal guest : List.of(a, b, c)) {
-            assertThat((List<?>) chat.snapshot(guest, room, 0, null).get("messages")).isEmpty();
+            assertThat((List<?>) chat.snapshot(guest, room, 0, null).get("messages")).hasSize(1);
         }
     }
 
@@ -358,7 +377,9 @@ class ChatIntegrationTests {
         var record = (Map<?, ?>) ((List<?>) snapshot.get("messages")).getFirst();
         assertThat(record.get("recipientCount")).isEqualTo(1);
         assertThat(record.get("seenCount")).isEqualTo(1L);
-        assertThat(record.get("disappearsAt")).isEqualTo(clock.time.plusSeconds(10));
+        assertThat(record.get("roomEndsAt")).isEqualTo(
+            ((Map<?, ?>) snapshot.get("room")).get("expiresAt")
+        );
         assertThat((List<?>) chat.snapshot(c, room, 0, null).get("messages")).isEmpty();
     }
 
@@ -391,14 +412,20 @@ class ChatIntegrationTests {
     }
 
     @Test
-    void unreadExpiryIsFilteredBeforeCleanupAndRetryCannotRestoreIt() {
+    void unreadMessagesRemainUntilRoomEnds() {
         join();
         Map<String, Object> m = send();
+        Instant roomEndsAt = (Instant) chat.summary(chat.authorized(a, room)).get("expiresAt");
         clock.time = clock.time.plusSeconds(3601);
-        assertThat((List<?>) chat.snapshot(b, room, 0, null).get("messages")).isEmpty();
+        assertThat((List<?>) chat.snapshot(b, room, 0, null).get("messages")).hasSize(1);
         Map<String, Object> retry = chat.send(a, room, (String) m.get("operationId"), "resurrect");
-        assertThat(retry).doesNotContainKey("body");
-        assertThat(retry.get("available")).isEqualTo(false);
+        assertThat(retry.get("body")).isEqualTo(m.get("body"));
+        assertThat(retry.get("available")).isEqualTo(true);
+        chat.cleanupRoom(room);
+        assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).hasSize(1);
+        clock.time = roomEndsAt.minusSeconds(1);
+        assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).hasSize(1);
+        clock.time = roomEndsAt;
         chat.cleanupRoom(room);
         new TransactionTemplate(txManager).executeWithoutResult(t ->
             assertThat(db.find(MessageContent.class, (String) m.get("id"))).isNull()
@@ -406,7 +433,7 @@ class ChatIntegrationTests {
     }
 
     @Test
-    void duplicateSeenNeverExtendsDeadlineAndSenderCannotReceipt() {
+    void duplicateSeenNeverChangesRoomEndAndSenderCannotReceipt() {
         join();
         Map<String, Object> m = send();
         String id = (String) m.get("id");
@@ -416,19 +443,20 @@ class ChatIntegrationTests {
         assertThat(first.get("deliveredAt")).isNotNull();
         clock.time = clock.time.plusSeconds(5);
         var second = chat.receipt(b, room, id, true);
-        assertThat(second.get("disappearsAt")).isEqualTo(first.get("disappearsAt"));
+        assertThat(second.get("roomEndsAt")).isEqualTo(first.get("roomEndsAt"));
         clock.time = clock.time.plusSeconds(6);
-        assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).isEmpty();
+        assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).hasSize(1);
     }
 
     @Test
-    void lateViewCannotExceedOriginalTtl() {
+    void viewReceiptDoesNotShortenMessageLifetime() {
         join();
         var m = send();
         clock.time = clock.time.plusSeconds(3598);
-        assertThat(chat.receipt(b, room, (String) m.get("id"), true).get("disappearsAt")).isEqualTo(
-            m.get("disappearsAt")
+        assertThat(chat.receipt(b, room, (String) m.get("id"), true).get("roomEndsAt")).isEqualTo(
+            m.get("roomEndsAt")
         );
+        assertThat((List<?>) chat.snapshot(b, room, 0, null).get("messages")).hasSize(1);
     }
 
     @Test
@@ -514,7 +542,8 @@ class ChatIntegrationTests {
             (Number) chat.summary(chat.authorized(a, room)).get("revision")
         ).longValue();
         var preview = chat.previewInvitation(secret);
-        assertThat(preview).containsEntry("participantCount", 1).containsEntry("ttlSeconds", 3600L);
+        assertThat(preview).containsEntry("participantCount", 1);
+        assertThat(preview).doesNotContainKeys("ttlSeconds", "readGraceSeconds");
         assertThat(preview).doesNotContainKeys(
             "participants",
             "messages",
@@ -565,7 +594,7 @@ class ChatIntegrationTests {
     }
 
     @Test
-    void operationLookupIsSenderScopedAndCannotResurrectExpiredContent() {
+    void operationLookupIsSenderScopedAndRetainsUntilRoomEnds() {
         join();
         String operation = UUID.randomUUID().toString();
         assertThat(chat.operationStatus(a, room, operation)).containsEntry("accepted", false);
@@ -580,11 +609,11 @@ class ChatIntegrationTests {
             Problem.class
         );
         clock.time = clock.time.plusSeconds(3601);
-        var expired = chat.operationStatus(a, room, operation);
-        assertThat(expired).containsEntry("accepted", true);
-        var metadata = (Map<?, ?>) expired.get("message");
+        var retained = chat.operationStatus(a, room, operation);
+        assertThat(retained).containsEntry("accepted", true);
+        var metadata = (Map<?, ?>) retained.get("message");
         assertThat(metadata.get("id")).isEqualTo(sent.get("id"));
-        assertThat(metadata.get("available")).isEqualTo(false);
-        assertThat(metadata.containsKey("body")).isFalse();
+        assertThat(metadata.get("available")).isEqualTo(true);
+        assertThat(metadata.get("body")).isEqualTo(sent.get("body"));
     }
 }

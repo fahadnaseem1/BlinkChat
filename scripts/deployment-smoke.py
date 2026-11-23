@@ -77,7 +77,7 @@ def main():
     for key in ('BLINK_GUEST', 'JSESSIONID'):
         flags = cookie_flags[key]
         assert flags['secure'] and flags['http_only'] and flags['same_site'] == 'strict', f'{key} must use secure hosted cookie flags'
-    created = request('/api/rooms', 'POST', {'title': 'Deployment check', 'ttlSeconds': 60}, headers)
+    created = request('/api/rooms', 'POST', {'title': 'Deployment check'}, headers)
     room_id = created['room']['id']
     print('PASS: hosted health, forwarded HTTPS, secure cookies, CSRF, and database writes')
 

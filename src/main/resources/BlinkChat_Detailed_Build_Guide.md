@@ -14,9 +14,9 @@ All numerical limits and timings below are proposed product defaults. Keep them 
 
 ## 2. Product vision and boundaries
 
-BlinkChat is for short conversations that do not need a permanent history. One person creates a room, shares an invitation privately, and another person joins. Messages appear immediately and disappear after a read grace period or a maximum lifetime.
+BlinkChat is for private conversations without permanent history. One person creates a room, shares an invitation privately, and others join. Messages remain available until the room ends, at most 24 hours after creation.
 
-The experience should feel quiet, fast, and intentional: a clear invitation flow, comfortable message bubbles, helpful connection states, and visible expiration rules.
+The experience should feel quiet, fast, and intentional: a clear invitation flow, comfortable message bubbles, and helpful connection states.
 
 ### First-release scope
 
@@ -27,7 +27,7 @@ The experience should feel quiet, fast, and intentional: a clear invitation flow
 | Invitation | A short-lived, single-use link admits the second participant. |
 | Live messaging | Both browsers exchange plain text through the server. |
 | Temporary storage | H2 stores active messages and the minimum lifecycle metadata. |
-| Disappearing content | Content becomes unavailable after the read deadline, message TTL, room closure, or room expiry, whichever happens first. |
+| Message retention | Content remains available until room closure or room expiry. |
 | Receipts | Sending, sent, delivered, seen, and failed have distinct meanings. |
 | Presence | Show whether the other participant has a live authenticated connection. |
 | Typing | Show a short-lived indicator only in the relevant room. |
@@ -54,7 +54,7 @@ Do not add React, PostgreSQL, Redis, Kafka, or an external message broker to com
 | Frontend hosting | Spring Boot serves the static frontend | Keeps cookies, HTTP requests, and sockets on one origin. |
 | Persistence | Embedded, file-based H2 | Preserves active data across local application restarts. |
 | Server count | One application instance | Matches the embedded database and in-memory broker design. |
-| Disappearance | Ten seconds after the first recipient view, capped by the original TTL and room lifetime | Gives the recipient a readable interval without extending retention. |
+| Message retention | Until the room ends, at most 24 hours after creation | Keeps viewed and unread messages available throughout the chat. |
 | Sender view | Accepted authorship counts as the sender having viewed their own text | Avoids waiting for every sender tab to open the message. |
 | Offline behavior | Preserve an unsent draft only in current page memory | Avoids silently keeping private text in browser storage. |
 | Security | Guest authentication and authorization from the beginning | Password signup can wait; private room protection cannot. |
@@ -65,9 +65,6 @@ Full account features can be added later through Spring Security. For this guide
 
 | Setting | Initial value | Interpretation |
 | --- | --- | --- |
-| Default unread message TTL | One hour | Measured from server acceptance, never from delivery. |
-| Selectable TTLs | One minute, five minutes, one hour, twenty-four hours | Chosen when creating the room; fixed for that room. |
-| Read grace period | Ten seconds | Begins on the first valid recipient seen acknowledgment. |
 | Room lifetime | Twenty-four hours | Absolute lifetime from creation; never extended by activity. |
 | Invitation lifetime | Fifteen minutes | Also limited by the room's remaining lifetime. |
 | Guest credential lifetime | Twenty-four hours | Absolute expiry; existing membership does not bypass it. |
@@ -79,8 +76,8 @@ Full account features can be added later through Spring Security. For this guide
 | Message rate | Thirty accepted sends per minute per participant | Add a small burst allowance and a separate IP ceiling. |
 | Live connections | Five per guest | Includes multiple browser tabs. |
 | Active rooms | Five per guest | Includes waiting rooms. |
-| Active messages | Two hundred per room | Reject further sends with a clear temporary-capacity error. |
-| Accepted sends per room lifetime | Two thousand | Bounds metadata growth even when bodies disappear quickly. |
+| Retained messages | Two hundred per room | Reject further sends with a clear capacity error. |
+| Accepted sends per room lifetime | Two thousand | Additional abuse limit. |
 | Snapshot page size | Up to one hundred active messages | Use stable sequence-based pagination. |
 | Typing refresh | At most once every two seconds | Avoid an event for every keystroke. |
 | Typing timeout | Four seconds | Clear the indicator without relying on a stop event. |
@@ -88,20 +85,20 @@ Full account features can be added later through Spring Security. For this guide
 | Stale connection threshold | Approximately thirty seconds | Allow tolerance for browser and network scheduling. |
 | Foreground reconciliation | Every thirty seconds | Repair missed lifecycle events even without a disconnect. |
 
-For example, a twenty-four-hour TTL in a room with one hour remaining still permits at most one hour of availability. Show that limit in the room settings.
+The room's 24-hour limit starts at creation and is not extended by activity. Messages are retained until then or until the creator ends the room sooner.
 
 ## 5. Core user journeys
 
 ### Journey A: Create a conversation
 
-1. The visitor opens BlinkChat and sees a brief explanation of temporary messages.
+1. The visitor opens BlinkChat and sees a brief explanation that messages remain until the chat ends.
 2. They choose a display name.
 3. The server establishes a guest identity and private browser credential.
-4. They select Create chat, choose a TTL preset, and create a room.
+4. They select Create chat and create a room.
 5. The waiting screen shows an invitation link, its expiry, and a Copy invite button.
 6. They share the invitation through a channel of their choice.
 7. The interface shows Waiting for someone to join until a second identity claims the invitation.
-8. Once joined, both participants see each other's display names and the room's expiration rules.
+8. Once joined, both participants see each other's display names and the room's end time.
 
 ### Journey B: Join an invitation
 
@@ -124,12 +121,12 @@ The invitation is a bearer capability: whoever claims it first can occupy the se
 5. The recipient's browser receives the message and acknowledges receipt.
 6. The sender sees Delivered.
 7. When the message is visibly displayed in the active conversation, the recipient sends a seen acknowledgment.
-8. Both participants receive the authoritative disappearance deadline.
-9. Both remove the content when that deadline arrives.
+8. Both participants receive the room-end time.
+9. Both retain the message until the room ends.
 
 ### Journey D: Recipient is offline
 
-The server accepts a valid message and retains it until its deadline. The sender sees Sent while no recipient device has acknowledged it. When the recipient reconnects before expiry, the active snapshot supplies the message. If the deadline has already passed, no content is returned.
+The server accepts a valid message and retains it until the room ends. The sender sees Sent while no recipient device has acknowledged it. When the recipient reconnects before room end, the active snapshot supplies the message.
 
 ### Journey E: Leave or close
 
@@ -148,7 +145,7 @@ Spring documents WebSocket as a transport whose application message format is de
 | Component | Responsibility |
 | --- | --- |
 | Browser UI | Render screens, capture input, and show connection and message states. |
-| Frontend state layer | Track messages, deadlines, revisions, drafts, and pending operations. |
+| Frontend state layer | Track messages, room-end time, revisions, drafts, and pending operations. |
 | HTTP controllers | Receive setup and snapshot requests and return consistent responses. |
 | STOMP controllers | Receive send, receipt, and typing commands. |
 | Identity and authorization layer | Resolve the caller and verify permission for every operation. |
@@ -157,7 +154,7 @@ Spring documents WebSocket as a transport whose application message format is de
 | Message service | Validate and persist messages, receipts, and lifecycle transitions. |
 | Event publisher | Deliver committed updates to the appropriate participant identities. |
 | Presence service | Maintain live connection counts and typing leases in memory. |
-| Cleanup service | Remove expired content and later remove lifecycle metadata. |
+| Cleanup service | Remove content when rooms end and later remove lifecycle metadata. |
 | H2 repositories | Read and write durable application records. |
 
 The built-in Spring simple broker keeps subscriptions in memory and supports STOMP heartbeats when configured with a scheduler. Use it for this single-instance project; H2 remains the recovery source after a disconnect. See [Spring's simple broker documentation](https://docs.spring.io/spring-framework/reference/web/websocket/stomp/handle-simple-broker.html).
@@ -241,7 +238,7 @@ Use separate records for identity, credentials, rooms, memberships, invitations,
 | Room identifier and creator reference | Identify the room and invitation owner. |
 | State | Waiting, active, closed, or expired. |
 | Created, expiry, and closed times | Define absolute availability. |
-| Message TTL and read grace | Immutable room policy. |
+| Retained message limit | Bound the number of messages stored for a room. |
 | Next message sequence | Allocate a stable ordering position. |
 | Durable revision | Order durable room mutations and reconcile clients. |
 | Accepted-send count | Enforce the lifetime metadata bound. |
@@ -262,26 +259,25 @@ Store invitation identifier, secret digest, room, creator, expiry, revoked time,
 | Room and sender references | Establish ownership and recipient membership. |
 | Client operation identifier | Recognize retries of the same send. |
 | Room sequence | Order messages independently of arrival timing. |
-| Accepted time | Start the unread TTL. |
-| Hard expiry time | Original maximum content lifetime, capped by room expiry. |
+| Accepted time | Order messages and audit delivery. |
+| Room-end time | The room's expiry, shared by every message. |
 | First delivered time | First recipient application acknowledgment. |
 | First seen time | First accepted recipient view acknowledgment. |
-| Effective disappearance time | Hard expiry shortened by the read grace when applicable. |
-| Removal time and reason | Record expiration, read completion, or closure without retaining text. |
+| Removal time and reason | Record room closure or room expiry without retaining text. |
 | Last durable revision | Help merge status updates. |
 
-Keep one row per accepted send as the bounded idempotency record, including after content deletion. Enforce uniqueness on room, sender, and client operation identifier. Do not retain a message-body hash after deletion solely to compare retries; return the first accepted result for that operation identifier.
+Keep one row per accepted send as the bounded idempotency record until the room metadata is purged. Enforce uniqueness on room, sender, and client operation identifier. Do not retain a message-body hash after deletion solely to compare retries; return the first accepted result for that operation identifier.
 
 ### Message content
 
-Store only a message reference and its plain-text body. Delete this content row when the message disappears. Keeping content separate from bounded metadata makes the privacy boundary explicit.
+Store only a message reference and its plain-text body. Delete this content row when the room ends. Keeping content separate from bounded metadata makes the privacy boundary explicit.
 
 ### Indexes and integrity rules
 
 - Index credential and invitation digests for lookup.
 - Index memberships by guest and room.
 - Make room-and-message-sequence unique.
-- Index available messages by room and sequence, and cleanup candidates by disappearance time.
+- Index available messages by room and sequence, and cleanup candidates by room end.
 - Enforce one content row per message.
 - Prevent orphaned content and memberships through foreign keys and deliberate purge ordering.
 - Use database constraints alongside service checks; concurrent requests can pass the same preliminary validation.
@@ -290,7 +286,7 @@ H2 supports embedded disk-based and in-memory databases, transactions, and row-l
 
 ## 10. Message lifecycle: exact semantics
 
-Treat delivery status and content availability as separate dimensions. A message can have been seen and later expire. A single status field should not erase that history or make expired content accessible.
+Treat delivery status and content availability as separate dimensions. A message can be seen while remaining available until the room ends. A single status field should not erase that history or grant access after the room ends.
 
 | UI status | Exact meaning |
 | --- | --- |
@@ -299,7 +295,7 @@ Treat delivery status and content availability as separate dimensions. A message
 | Delivered | At least one recipient browser acknowledged receiving the body into application memory. |
 | Seen | At least one recipient browser acknowledged displaying the message under the visibility rules. |
 | Failed | The send was rejected, or the browser cannot establish whether it was accepted and requires recovery or retry. |
-| Disappeared | Content is no longer available, regardless of prior delivery status. |
+| Removed | The room ended and its message body is no longer available. |
 
 Writing to a socket or publishing to the broker does not prove delivery. A STOMP transport receipt is not a substitute for an application-level delivery acknowledgment.
 
@@ -317,26 +313,25 @@ A message off-screen, in a background tab, or in a room-list preview remains unr
 
 This is a UI observation, not proof of human attention. The server can validate identity and message eligibility, but cannot prove that a person actually read text.
 
-### Deadline calculation in words
+### Retention in words
 
-At acceptance, calculate hard expiry from server acceptance time plus room TTL, capped by the room expiry. Before a recipient view, this is the disappearance deadline.
+At acceptance, associate the message with the room's existing expiry. Receipts never change that time.
 
-At the first valid recipient view, calculate the end of the ten-second read grace. Use whichever is earlier: that read deadline or the original hard expiry. Room closure can make the content unavailable sooner still.
+The creator can end the room sooner. Room expiry or closure makes all message bodies unavailable and starts the bounded metadata-retention window.
 
-Duplicate receipts never restart or extend a timer. Later device views never extend retention. Sender retries never create a new lifetime for the same accepted operation.
+Duplicate receipts and later recipient views update status only. Sender retries never create a duplicate message.
 
 ### Worked example
 
 | Time | Event | Result |
 | --- | --- | --- |
-| 10:00:00 | A message is accepted with a five-minute TTL | Hard expiry is 10:05:00. |
-| 10:01:00 | Recipient browser receives the message | Delivered; deadline remains 10:05:00. |
-| 10:01:10 | Recipient visibly opens it | Seen; disappearance becomes 10:01:20. |
-| 10:01:15 | Another recipient tab reports Seen | Deadline remains 10:01:20. |
-| 10:01:20 | Deadline arrives | Both clients remove the body; server refuses further body reads. |
+| Time | Event | Result |
+| --- | --- | --- |
+| 10:00:00 | A message is accepted in a room that ends at 10:30 | The message remains available until 10:30. |
+| 10:01:00 | Recipient browser receives the message | Delivered; room-end time is unchanged. |
+| 10:01:10 | Recipient visibly opens it | Seen; the message remains available. |
+| 10:15:00 | Creator ends the room | Both clients remove the body; the server refuses further body reads. |
 | By next successful cleanup batch | Content row is deleted | Lifecycle metadata remains temporarily for retries and reconciliation. |
-
-If the first view occurs at 10:04:58, the body still disappears at 10:05:00. Show the remaining time accurately rather than promising a full ten seconds.
 
 ## 11. Business logic for sending and receipts
 
@@ -347,10 +342,10 @@ If the first view occurs at 10:04:58, the body still disappears at 10:05:00. Sho
 3. Begin a short transaction and lock the room consistently.
 4. Check membership and credential validity.
 5. Look for an existing accepted operation with the same room, sender, and client operation identifier.
-6. If found, return that operation's current metadata without inserting content or resetting deadlines. A retry after closure can receive this metadata while membership records remain, but cannot retrieve expired content.
+6. If found, return that operation's current metadata without inserting content. A retry after closure can receive this metadata while membership records remain, but cannot retrieve room content.
 7. For a new operation, require an active, unexpired room with both participant slots allocated.
 8. Enforce capacity and rate limits and reject blank text.
-9. Assign the canonical message identifier, sequence, acceptance time, and deadlines.
+9. Assign the canonical message identifier, sequence, acceptance time, and room-end time.
 10. Persist lifecycle metadata and content atomically and increment the room revision.
 11. Commit before reporting Sent or publishing a message event.
 12. Publish the committed update to the two participant identities, including the sender's other connected tabs.
@@ -365,9 +360,9 @@ Verify that the caller is the recipient, that the message belongs to the room, a
 
 ### Processing Seen
 
-Verify the same eligibility and record the first seen time once. Seen also establishes Delivered if a delivery acknowledgment was lost. Shorten the effective deadline without extending it and broadcast the authoritative deadline after commit.
+Verify the same eligibility and record the first seen time once. Seen also establishes Delivered if a delivery acknowledgment was lost. Broadcast the updated receipt state after commit without changing message retention.
 
-An acknowledgment for a message already unavailable must not revive the message or change its lifecycle. Return a harmless already-unavailable result without a body.
+An acknowledgment for a message in an ended room must not revive the message or change its lifecycle. Return a harmless already-unavailable result without a body.
 
 ### Keeping transactions understandable
 
@@ -379,11 +374,11 @@ This deliberately trades maximum throughput for simple correctness. Measure cont
 
 ### Availability and physical cleanup
 
-Availability must be checked whenever a body is queried, included in a snapshot, or prepared for publication. Do not wait for the scheduled cleanup job to hide expired content.
+Availability must be checked whenever a body is queried, included in a snapshot, or prepared for publication. A room's closed or expired state makes all its messages unavailable immediately.
 
-A healthy cleanup worker should delete due content in the next five-second batch. If the server is stopped or overloaded, physical deletion may occur later. Expired content must still be excluded immediately when the server next serves a request.
+A healthy cleanup worker should delete room content in the next five-second batch. If the server is stopped or overloaded, physical deletion may occur later. Ended room content must still be excluded immediately when the server next serves a request.
 
-Run startup cleanup before allowing normal recovery reads. Clients also compare deadlines before rendering incoming events, so a late event does not flash expired text.
+Run startup cleanup before allowing normal recovery reads. Clients also compare room-end times before rendering incoming events, so a late event does not flash content from an ended room.
 
 ### Cleanup responsibilities
 
@@ -400,7 +395,7 @@ The job must tolerate duplicate execution and server restarts. A failed batch sh
 
 ### Browser behavior
 
-- Remove expired message bodies from JavaScript state and the visible DOM.
+- Remove ended-room message bodies from JavaScript state and the visible DOM.
 - Clear any message preview that still references removed content.
 - Cancel message-specific timers and remove pending body references after resolution.
 - Keep drafts and retry bodies in page memory only and clear them on successful acceptance, explicit discard, credential loss, or room closure.
@@ -409,9 +404,9 @@ The job must tolerate duplicate execution and server restarts. A failed batch sh
 
 Use no-store response behavior for private room and message HTTP responses. Static assets may be cached independently because they contain no conversation data.
 
-### What disappearing means
+### What ending a room means
 
-The application stops serving content, deletes it from its active logical database, and instructs connected clients to remove it. It does not guarantee forensic erasure from database pages, logs, filesystem snapshots, crash dumps, browser memory, or a participant's screenshots and copies.
+The application stops serving room content, deletes message bodies from its active logical database, and instructs connected clients to remove them. Messages are not individually removed after viewing or by a message timer. Room closure and the 24-hour room limit remain the retention boundary. This does not guarantee forensic erasure from database pages, logs, filesystem snapshots, crash dumps, browser memory, or a participant's screenshots and copies.
 
 TLS protects data in transit. It does not provide end-to-end encryption; this server can access message bodies. Describe BlinkChat as temporary chat, without claiming screenshot prevention, anonymous identity verification, or cryptographic self-destruction.
 
@@ -426,7 +421,7 @@ These are proposed resource names and behaviors, not implementation snippets. Al
 | GET | /api/me | Read current guest and credential expiry | Reject expired credentials. |
 | PATCH | /api/me | Update display name | Validate length; preserve identity. |
 | POST | /api/logout | Revoke this browser credential | Close related live connections. |
-| POST | /api/rooms | Create a waiting room | Validate TTL and active-room limits. |
+| POST | /api/rooms | Create a waiting room | Validate the optional title and active-room limits. |
 | GET | /api/rooms | List this guest's available rooms | Never return other guests' rooms. |
 | GET | /api/rooms/{roomId} | Read an authoritative room snapshot | Require membership; omit unavailable content. |
 | GET | /api/rooms/{roomId}/messages | Page through available bodies | Stable sequence cursor, bounded page size. |
@@ -452,7 +447,7 @@ Return a stable machine-readable error category, a safe human message, an option
 | Room full | Explain that the room already has two participants. |
 | Room closed or expired | Disable sending and clear private content. |
 | Rate limited | Show when retry is permitted. |
-| Capacity reached | Keep draft; explain that older messages must expire. |
+| Capacity reached | Keep draft; explain that the room has reached its message limit. |
 | Server failure | Keep uncertain sends distinguishable from confirmed failures. |
 
 ## 14. WebSocket and STOMP contract
@@ -491,7 +486,7 @@ Reject arbitrary subscriptions to broker internals, other identities' destinatio
 | message.accepted | An operation has a committed canonical message identifier. |
 | message.available | An active message is available to this participant. |
 | message.delivered | First recipient delivery has been recorded. |
-| message.seen | First view and the effective deadline have been recorded. |
+| message.seen | First view has been recorded. |
 | message.removed | Content is unavailable; includes identifier and removal reason, never text. |
 | presence.changed | Other participant's aggregate connection state changed. |
 | typing.changed | Other participant is typing or their typing lease ended. |
@@ -514,7 +509,7 @@ Spring documents that thread-pool processing can affect inbound and outbound ord
 
 Generate one unique client operation identifier when the user first sends a particular message. Retry that operation with the same identifier. A separately composed message gets a different identifier even when the text is identical.
 
-If the connection drops after commit but before acceptance reaches the browser, the retry resolves to the existing message. If its content has already disappeared, the retry returns unavailable metadata and never inserts the body again.
+If the connection drops after commit but before acceptance reaches the browser, the retry resolves to the existing message. If its room has ended, the retry returns unavailable metadata and never inserts the body again.
 
 Keep the accepted-operation metadata until one hour after room closure or expiry. After metadata purge, the room no longer accepts commands, so an old retry cannot create a replacement message.
 
@@ -533,11 +528,11 @@ Every durable room mutation should emit a corresponding revision-bearing event t
 
 When a message is absent from a complete authoritative snapshot, remove any confirmed local copy. Never merge old cached content back into the snapshot. Separately reconcile uncertain local operations by their operation identifiers; if a room is unavailable, discard their bodies.
 
-### Deadline and removal precedence
+### Room-end and removal precedence
 
-Content removal and the most recent authoritative room state take precedence over late content events. Reject older revisions and messages whose deadline has elapsed. Reset obsolete asynchronous requests when the user switches rooms so a late response cannot populate the wrong conversation.
+Content removal and the most recent authoritative room state take precedence over late content events. Reject older revisions and content from ended rooms. Reset obsolete asynchronous requests when the user switches rooms so a late response cannot populate the wrong conversation.
 
-The client uses server time and elapsed monotonic time to estimate deadlines. After reconnect, focus restoration, or a large clock discrepancy, reconcile before displaying previously held text. A client countdown supports the server's policy; it never authorizes extending a message.
+The client uses server time and elapsed monotonic time to detect room end. After reconnect, focus restoration, or a large clock discrepancy, reconcile before displaying previously held text.
 
 ### Delivery guarantee
 
@@ -611,15 +606,13 @@ These colors are starting points, not accessibility certification. Verify contra
 
 Show the BlinkChat name, one sentence explaining temporary chat, the display-name field, and Create chat. For visitors arriving through an invitation, make Join chat the main action.
 
-Suggested copy: “A private room for a short conversation. Messages disappear after viewing or when their timer ends.” Include a small, readable explanation that the server processes messages and that participants can still copy them.
+Suggested copy: “A private chat. Messages stay until the room ends.” Include a small, readable explanation that the server processes messages and that participants can still copy them.
 
 Avoid presenting display-name entry as a password-protected account login.
 
 ### Screen B: Create and waiting room
 
-Present the TTL presets with a short plain-language description. Explain that the room itself lasts at most twenty-four hours and that a recipient view shortens each message's remaining life.
-
-The waiting view includes the invitation, its countdown, Copy invite, Regenerate invite, and End chat. Display a clear copied confirmation. Keep the raw link out of persistent conversation previews.
+The waiting view says “No messages yet” and provides an Invite button. The chat lasts until its creator ends it or its fixed lifetime of at most twenty-four hours expires; messages remain available for that entire time. Keep invitation management in the chat menu and keep the raw link out of persistent conversation previews.
 
 Disable the composer until the second participant joins. Show an inviting empty state instead of an empty message list with unexplained disabled controls.
 
@@ -629,7 +622,7 @@ At widths around 1024 pixels and above, use a sidebar roughly 280 to 320 pixels 
 
 The sidebar contains the current guest, Create chat, active and waiting rooms, unread counts, and a small settings or profile control. Use generic previews such as “New message” instead of message text.
 
-The conversation contains a header, scrollable message area, reserved typing-indicator area, and composer. The header shows the other participant, connection status, room lifetime, disappearance policy, and End chat within an overflow menu.
+The conversation contains a header, scrollable message area, reserved typing-indicator area, and composer. Room end time and member details belong in chat details; room actions belong in an overflow menu.
 
 Do not put essential actions behind hover-only controls.
 
@@ -653,11 +646,10 @@ Avoid attachment and microphone buttons that imply unimplemented features.
 
 - Align outgoing and incoming messages consistently and show clear accessible status labels.
 - Use subtle status text for Sending, Sent, Delivered, Seen, and Failed.
-- Show the read countdown after the first accepted view, with an unobtrusive room-policy explanation available at all times.
 - Auto-scroll when the user is already near the bottom or sends a message.
 - If the user is reading older content, preserve their position and show a New messages control.
-- Keep scrolling stable as expired bubbles disappear above the viewport.
-- Use a brief generic “Messages disappeared” notice if helpful; avoid permanent one-placeholder-per-message history.
+- Keep scrolling stable as new messages arrive.
+- Keep message bodies until the room ends, then clear the conversation.
 
 ### Motion
 
@@ -689,7 +681,7 @@ If the same participant needs both their laptop and phone to share one identity,
 
 Never reveal the first device's cookie to the second. Rate-limit pairing, allow cancellation, cap linked devices, and support per-device credential revocation. New credentials cannot extend the guest's absolute lifetime.
 
-If one linked recipient device views a message, that counts for the participant and starts disappearance everywhere. A device that was offline may therefore never receive that content. Explain this before enabling linking.
+If one linked recipient device views a message, that counts for the participant's view status. The message remains available on other devices until the room ends.
 
 ## 20. Security requirements for the first public release
 
@@ -805,13 +797,13 @@ Deliverable: two devices exchange text immediately, and the sender sees Sent onl
 
 Completion gate: database failure produces no successful message event; a lost acceptance followed by retry produces one canonical message.
 
-### Milestone 5: Ephemeral lifecycle
+### Milestone 5: Room-end retention
 
-Implement hard expiry, visibility-based Seen, read grace, content deletion, room closure, and startup cleanup. Add client deadline handling and content-free removal events.
+Implement visibility-based Seen, message retention until room end, content deletion on room closure or expiry, and startup cleanup. Add client room-end handling and content-free removal events.
 
-Deliverable: both participants lose the body at its effective deadline, and expired content cannot be fetched again.
+Deliverable: both participants retain messages until the room ends, and ended room content cannot be fetched again.
 
-Completion gate: a delayed cleanup worker does not expose expired text; duplicate receipts never extend retention; refresh and reconnect never restore removed content.
+Completion gate: a delayed cleanup worker does not expose ended room content; receipts never change retention; refresh and reconnect never restore removed content.
 
 ### Milestone 6: Recovery, presence, and typing
 
@@ -845,7 +837,7 @@ This project has meaningful concurrency, authorization, and time-based behavior.
 
 ### Unit tests
 
-Use a controllable application clock for deadline calculations. Cover no-view expiry, early view, near-expiry view, room lifetime caps, duplicate Seen, and closure precedence. Test recipient authorization and the separation between delivery state and content availability.
+Use a controllable application clock for room-end calculations. Cover message retention after viewing and while unread, the 200-message cap, automatic room expiry, duplicate Seen, and closure precedence. Test recipient authorization and the separation between delivery state and content availability.
 
 Avoid real multi-minute waits; advance the test clock and inspect the result.
 
@@ -880,17 +872,17 @@ Watch database lock waits, socket buffers, memory use, and cleanup duration. Sto
 | Two guests claim the same invitation simultaneously | Exactly one new participant is admitted. |
 | Invitation link is previewed | It is not consumed until Join is submitted. |
 | Original member repeats Join after a lost response | Existing membership is returned. |
-| Recipient offline | Sender sees Sent; message is recoverable only before expiry. |
+| Recipient offline | Sender sees Sent; message is recoverable until room end. |
 | Recipient receives a socket frame without application acknowledgment | No false Delivered status. |
 | Message arrives in a background tab | Delivered may update; Seen does not. |
 | Message is below the visible scroll area | Seen waits for actual visible display. |
 | Sender's extra tab receives the message | It cannot generate recipient receipts. |
-| Recipient reports Seen twice | One first-seen time and one non-extending deadline. |
-| Recipient reads just before hard expiry | Original expiry still wins. |
-| Message expires while recipient is offline | Reconnect returns no body. |
-| Cleanup job is delayed | All read paths still omit due content. |
+| Recipient reports Seen twice | One first-seen time; retention is unchanged. |
+| Recipient reads a message | Content remains available until room end. |
+| Room ends while recipient is offline | Reconnect returns no body. |
+| Cleanup job is delayed after room end | All read paths still omit room content. |
 | Socket acceptance is lost | Retrying the same operation creates no duplicate. |
-| Old send is retried after its body disappeared | Metadata may return; body is never recreated. |
+| Old send is retried after room end | Metadata may return; body is never recreated. |
 | Commit succeeds but publication fails | Reconciliation discovers the committed state. |
 | Events arrive out of order | Revision handling or a fresh snapshot restores correct state. |
 | Snapshot is paged while room changes | Client restarts reconciliation instead of mixing versions. |
@@ -902,7 +894,7 @@ Watch database lock waits, socket buffers, memory use, and cleanup duration. Sto
 | A participant selects End chat | Both lose content, invitations fail, and new sends stop. |
 | Browser refreshes or returns from back-forward cache | Unavailable content is not restored into the live view. |
 | Room metadata reaches its purge deadline | Dependent metadata is removed and old operations remain impossible. |
-| Application restarts with persistent H2 | Valid identities recover and only unexpired messages remain available. |
+| Application restarts with persistent H2 | Valid identities recover and active room messages remain available. |
 | Application restarts in disposable hosted mode | UI explains the lost room and returns to fresh entry. |
 
 ## 25. Deployment plan
@@ -966,7 +958,7 @@ This is a sequencing aid for focused sessions, not a deadline guarantee. Each se
 | 5 | Implement rooms, atomic invitation redemption, and membership tests. |
 | 6 | Connect authenticated sockets and private text delivery. |
 | 7 | Add acceptance, delivery receipts, sequences, and idempotent retries. |
-| 8 | Implement Seen, read deadlines, cleanup, and closure. |
+| 8 | Implement Seen, room-end retention, cleanup, and closure. |
 | 9 | Implement snapshots, reconnection, presence, and typing. |
 | 10 | Verify concurrency, security boundaries, and lifecycle edge cases. |
 | 11 | Refine mobile behavior, accessibility, and visual transitions. |
@@ -982,9 +974,9 @@ Keep a short working checklist for the current milestone. Finish a complete vert
 2. Join from a phone with a different guest identity.
 3. Show online state and a typing indicator.
 4. Send a message and show the distinction between Sent, Delivered, and Seen.
-5. Show its read countdown and disappearance on both devices.
-6. Refresh to demonstrate that removed content does not return.
-7. Briefly disconnect one device, send an unread message, and reconnect before expiry.
+5. Show that viewed messages remain on both devices.
+6. Refresh to demonstrate that retained content returns until the room ends.
+7. Briefly disconnect one device, send an unread message, and reconnect before room end.
 8. End the chat and show that the invitation and room no longer permit access.
 
 Use fictional content and avoid displaying raw credentials or real private conversation text in screenshots or recordings.
@@ -1025,7 +1017,7 @@ Maintain a short product overview, local setup instructions, exact selected depe
 
 ## 30. Definition of done
 
-BlinkChat's first release is complete when two independent guests can join a private two-person room, exchange text across devices, understand its delivery and visibility state, and see the content disappear according to one documented policy.
+BlinkChat's first release is complete when two independent guests can join a private two-person room, exchange text across devices, understand its delivery and visibility state, and retain messages until the room ends.
 
 Refreshes, retries, duplicate receipts, socket interruptions, delayed cleanup, and application restarts must obey that policy. Unauthorized guests must not read, join, subscribe to, or send into an existing private conversation.
 

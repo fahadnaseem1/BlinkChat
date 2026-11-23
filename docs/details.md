@@ -2,7 +2,7 @@
 
 ## 1. Project in one minute
 
-BlinkChat is a private, temporary group chat application built with Java 21 and Spring Boot 4.2. A guest chooses a display name, receives an HttpOnly browser credential, creates or joins a room through an invitation, and exchanges plaintext messages over REST and STOMP WebSocket traffic.
+BlinkChat is a private group chat application built with Java 21 and Spring Boot 4.2. A guest chooses a display name, receives an HttpOnly browser credential, creates or joins a room through an invitation, and exchanges plaintext messages over REST and STOMP WebSocket traffic. Messages stay available until the room ends.
 
 The project uses a monolithic architecture, a vanilla JavaScript frontend, and file-based H2. It is intentionally a single-instance deployment because H2 is durable and the Spring simple broker and live presence maps are process-local.
 
@@ -52,7 +52,7 @@ Invitation redemption locks the room and invitation, allowing at most one guest 
 
 ### Messages and receipts
 
-Each message has a unique operation ID for retry deduplication, a sequence number for pagination, an original hard expiry, and a possible read-based grace expiry.
+Each message has a unique operation ID for retry deduplication and a sequence number for pagination. Its body remains available until the room ends, subject to the 200-message room limit.
 
 The frozen recipient audience is snapshotted when the message is accepted. Later group members cannot read or acknowledge earlier messages. A sender counts as having authored the message but does not send a recipient receipt.
 
@@ -61,13 +61,13 @@ The frozen recipient audience is snapshotted when the message is accepted. Later
 - **Accepted:** the server committed the operation and assigned the authoritative state.
 - **Delivered:** at least the relevant recipient acknowledgement reached the server.
 - **Seen:** the message was visible to the recipient for the UI threshold.
-- **Removed:** the message body was erased or became unavailable by policy.
+- **Removed:** the message body was erased when the room ended.
 
 The system does not promise exactly-once socket delivery. Events trigger repair, and HTTP snapshots reconcile missed changes.
 
-### Ephemeral cleanup
+### Room-end retention
 
-The configured unread TTL starts at server acceptance. The read grace starts after all original recipients have seen the message. The final disappearance deadline cannot exceed the hard TTL or room expiry. Cleanup removes content immediately when it detects an expired state and later purges lifecycle metadata.
+Messages are retained until the creator closes the room or its 24-hour lifetime ends. Closing or expiring a room removes its message bodies; lifecycle metadata is purged after the bounded recovery window.
 
 ## 5. Architecture and component responsibilities
 
@@ -76,7 +76,7 @@ The configured unread TTL starts at server acceptance. The read grace starts aft
 | `ApiController` | Guest session, room, invitation, snapshot, health, and close HTTP APIs |
 | `ChatController` | STOMP send, delivered, seen, and typing commands |
 | `GuestIdentityService` | Secret creation, digest lookup, identity expiry, validation, and revocation |
-| `ChatService` | Membership, invites, send deduplication, receipts, deadlines, snapshots, and cleanup |
+| `ChatService` | Membership, invites, send deduplication, receipts, room-end retention, snapshots, and cleanup |
 | `ChatRepository` | JPA entity access, pessimistic room locking, and JPQL queries |
 | `Records` | JPA models for guests, credentials, rooms, memberships, invitations, messages, and recipients |
 | `Connections` | Live WebSocket session tracking, presence, typing leases, limits, and revocation |
@@ -130,7 +130,7 @@ The frontend is split into:
 
 The client keeps drafts and uncertain sends only in page memory. It does not persist private message text in localStorage. Drafts remain usable for chat switching but disappear on refresh.
 
-The browser tracks server time relative to its monotonic clock to keep expiry countdowns stable when the device clock changes.
+The browser tracks server time relative to its monotonic clock to clear room content when its room ends, even if the device clock changes.
 
 ## 9. Testing strategy
 
@@ -140,12 +140,12 @@ Backend integration tests cover:
 - Concurrent invitation claims and send retries
 - Room membership and invitation lifecycle
 - Credential revocation and expiry
-- Read grace and original TTL behavior
+- Message retention until room end
 - Frozen recipient audiences in groups
 - Unicode code-point validation
 - Revision mismatch and pagination resync
 - HTTP authentication and CSRF
-- Credential recovery and operation metadata after body expiry
+- Credential recovery and operation metadata after room end
 
 Optional browser checks verify entry, room navigation, group chat, UI behavior, invitation copy, offline recovery, drafts, receipts, and mobile rendering.
 
@@ -179,9 +179,9 @@ The redemption flow locks the room and invitation in the transaction, checks roo
 
 An after-commit event listener avoids notifying a participant about state that was rolled back. It still does not guarantee socket delivery, so snapshots remain the recovery authority.
 
-### How do disappearing messages work?
+### How long are messages retained?
 
-The server stores a hard expiry and optionally a shorter read grace expiry. Receipt updates cannot extend the hard expiry. Cleanup removes the message body and emits removal metadata. Operation lookup may continue returning content-free metadata after the body disappears.
+Messages remain available until the creator ends the room or the room reaches its 24-hour limit. A room can retain up to 200 messages. Closing or expiring a room removes its bodies; operation lookup may retain content-free metadata for the recovery window.
 
 ### Why not direct peer-to-peer WebRTC?
 

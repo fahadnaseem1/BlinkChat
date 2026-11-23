@@ -2,7 +2,6 @@ package com.blinkchat.config;
 
 import com.blinkchat.identity.*;
 import com.blinkchat.messaging.Connections;
-import java.time.*;
 import java.util.Set;
 import org.springframework.context.annotation.*;
 import org.springframework.messaging.*;
@@ -151,14 +150,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                 if (
                                     data != null &&
                                     data.has("body") &&
-                                    (!Instant.parse(data.get("disappearsAt").asString()).isAfter(
-                                        java.time.Instant.now()
-                                    ) ||
-                                        !connections.canDeliverBody(
-                                            a.getSessionId(),
-                                            event.get("roomId").asString(),
-                                            data.get("id").asString()
-                                        ))
+                                    !connections.canDeliverBody(
+                                        a.getSessionId(),
+                                        event.get("roomId").asString(),
+                                        data.get("id").asString()
+                                    )
                                 ) {
                                     return null;
                                 }

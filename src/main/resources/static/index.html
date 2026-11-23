@@ -60,11 +60,11 @@
                     Continue without joining
                 </button>
                 <details class="privacy">
-                    <summary>Privacy &amp; disappearing messages</summary>
+                    <summary>Privacy</summary>
                     <p>
                         No account needed. A random nickname is assigned if you leave the name
-                        blank. Messages expire, but screenshots are possible. The server processes
-                        messages.
+                        blank. Messages stay until the chat ends. Screenshots are possible, and the
+                        server processes messages.
                     </p>
                 </details>
             </section>
@@ -136,17 +136,12 @@
                     <dl>
                         <dt>Chat code</dt>
                         <dd id="chat-code"></dd>
-                        <dt>After viewing</dt>
-                        <dd id="detail-grace"></dd>
-                        <dt>Unread messages</dt>
-                        <dd id="detail-ttl"></dd>
                         <dt>Room ends</dt>
                         <dd id="detail-end"></dd>
                     </dl>
                     <p>
-                        Rooms last up to 24 hours. Timers start after every original recipient views
-                        a message. New members see only new messages. Ending a room removes its
-                        messages.
+                        Messages stay until this chat ends. New members see only new messages.
+                        Ending a room removes its messages.
                     </p>
                     <h3>Members</h3>
                     <p id="members-description"></p>
@@ -217,22 +212,6 @@
                     autocomplete="off"
                 />
 
-                <details id="message-settings">
-                    <summary>Message settings</summary>
-                    <label for="read-grace">After viewing</label>
-                    <select id="read-grace">
-                        <option value="10">10 seconds</option>
-                        <option value="30">30 seconds</option>
-                        <option value="60">1 minute</option>
-                    </select>
-                    <label for="ttl">If unread</label
-                    ><select id="ttl">
-                        <option value="60">1 minute</option>
-                        <option value="300">5 minutes</option>
-                        <option value="3600" selected>1 hour</option>
-                        <option value="86400">24 hours</option>
-                    </select>
-                </details>
                 <div class="dialog-actions">
                     <button type="button" id="cancel-create">Cancel</button
                     ><button id="create-submit" class="primary">Create chat</button>

@@ -239,10 +239,6 @@ function head() {
     if (ended) {
         $('invite-dialog').close();
     }
-    const ttl =
-        room.ttlSeconds < 3600 ? `${room.ttlSeconds / 60} min` : `${room.ttlSeconds / 3600} hr`;
-    $('detail-grace').textContent = `Disappears after ${room.readGraceSeconds} seconds`;
-    $('detail-ttl').textContent = `Available for up to ${ttl}`;
     $('detail-end').textContent = new Date(room.expiresAt).toLocaleString([], {
         dateStyle: 'medium',
         timeStyle: 'short',
@@ -394,7 +390,7 @@ async function reconcile() {
         revision = snapshot.revision;
         online = snapshot.online;
         messages = new Map(
-            all.filter((m) => Date.parse(m.disappearsAt) > now()).map((m) => [m.id, m]),
+            all.filter((m) => Date.parse(m.roomEndsAt) > now()).map((m) => [m.id, m]),
         );
         for (const m of all) {
             acceptPending(m.operationId);
@@ -449,7 +445,7 @@ function event(e) {
             (e.type === 'message.accepted' || e.type === 'message.available') &&
             e.data.senderId !== me?.id &&
             e.data.available &&
-            Date.parse(e.data.disappearsAt) > now()
+            Date.parse(e.data.roomEndsAt) > now()
         ) {
             unreadRooms.add(e.roomId);
             renderRooms();
@@ -522,14 +518,14 @@ function event(e) {
             !messages.has(m.id) &&
             m.senderId !== me.id &&
             m.body &&
-            Date.parse(m.disappearsAt) > now()
+            Date.parse(m.roomEndsAt) > now()
         ) {
             const name =
                 room.participants.find((p) => p.id === m.senderId)?.displayName || 'Someone';
             $('message-announcements').textContent =
                 `${name} sent a new message. Message ${m.sequence}.`;
         }
-        if (m.body && Date.parse(m.disappearsAt) > now()) {
+        if (m.body && Date.parse(m.roomEndsAt) > now()) {
             messages.set(m.id, m);
         } else {
             messages.delete(m.id);
@@ -614,10 +610,6 @@ async function begin() {
         },
     );
 }
-function lifetimeLabel(seconds) {
-    return seconds < 3600 ? `${seconds / 60} min` : `${seconds / 3600} hr`;
-}
-
 function configureEntry() {
     const returning = Boolean(me && joinSecret);
     $('entry-title').textContent = joinSecret ? 'Join chat' : 'Start chatting';
@@ -661,7 +653,7 @@ async function loadInvitationPreview() {
         $('preview-people').textContent =
             `${preview.participantCount} of ${preview.maxParticipants} people`;
         $('preview-policy').textContent =
-            `${preview.readGraceSeconds}s after viewing · ${lifetimeLabel(preview.ttlSeconds)} if unread. New messages only.`;
+            'Messages stay until the chat ends. New members see only new messages.';
         previewReady = true;
     } catch (error) {
         if (secret !== joinSecret) return;
@@ -721,9 +713,6 @@ $('entry-form').onsubmit = async (event) => {
 
 // Chat creation and invitation actions.
 function showCreate() {
-    $('message-settings').open = false;
-    $('ttl').value = '3600';
-    $('read-grace').value = '10';
     $('fresh-start-note').hidden = true;
     $('create-submit').textContent = 'Create chat';
     $('create-dialog').showModal();
@@ -739,11 +728,7 @@ $('create-form').onsubmit = async (e) => {
     creating = true;
     $('create-submit').disabled = true;
     try {
-        const created = await api('/rooms', 'POST', {
-            ttlSeconds: Number($('ttl').value),
-            title: $('chat-name').value,
-            readGraceSeconds: Number($('read-grace').value),
-        });
+        const created = await api('/rooms', 'POST', { title: $('chat-name').value });
         invitations.set(created.room.id, created.invite);
         $('create-dialog').close();
         $('chat-name').value = '';
@@ -773,7 +758,7 @@ function receiptLabel(message) {
 function renderReceiptDetails() {
     if (!receiptMessageId) return;
     const message = messages.get(receiptMessageId);
-    if (!message || Date.parse(message.disappearsAt) <= now()) {
+    if (!message || Date.parse(message.roomEndsAt) <= now()) {
         $('receipts-dialog').close();
         receiptMessageId = null;
         $('receipts-list').replaceChildren();
@@ -827,10 +812,6 @@ $('fresh-chat').onclick = () => {
     showCreate();
     $('fresh-start-note').hidden = false;
     $('chat-name').value = room?.title || '';
-    if (room) {
-        $('ttl').value = String(room.ttlSeconds);
-        $('read-grace').value = String(room.readGraceSeconds);
-    }
 };
 
 function renderMembers() {
@@ -992,7 +973,7 @@ async function verifyPending(id) {
                 if (
                     room?.id === item.roomId &&
                     message.body &&
-                    Date.parse(message.disappearsAt) > now()
+                    Date.parse(message.roomEndsAt) > now()
                 ) {
                     messages.set(message.id, message);
                 }
@@ -1100,7 +1081,7 @@ setInterval(() => {
     }
     let changed = false;
     for (const [id, m] of messages) {
-        if (Date.parse(m.disappearsAt) <= now()) {
+        if (Date.parse(m.roomEndsAt) <= now()) {
             messages.delete(id);
             $('message-announcements').textContent = '';
             changed = true;

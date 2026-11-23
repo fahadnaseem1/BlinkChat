@@ -41,9 +41,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
 
         async function create(title) {
             await page.locator('#new-room').click();
-            assert.equal(await page.locator('#message-settings').evaluate((el) => el.open), false);
-            assert.equal(await page.locator('#read-grace').isVisible(), false);
-            assert.equal(await page.locator('#ttl').isVisible(), false);
+            assert.equal(await page.locator('#message-settings').count(), 0);
             await page.locator('#chat-name').fill(title);
             await page.locator('#create-submit').click();
             await page.waitForFunction(
@@ -88,7 +86,6 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await page.locator('#chat-info').click();
         assert.equal(await page.locator('#chat-details').isVisible(), true);
         assert.match(await page.locator('#chat-code').textContent(), /^Chat [0-9A-F]{6}$/);
-        assert.match(await page.locator('#detail-ttl').textContent(), /1 hr/);
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#chat-details').isVisible(), false);
         await page.locator('#chat-info').click();
@@ -163,6 +160,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await page.setViewportSize({ width: 360, height: 780 });
         await page.locator('#draft').focus();
         await page.setViewportSize({ width: 360, height: 430 });
+        await page.evaluate(() => visualViewport.dispatchEvent(new Event('resize')));
         const mobileChatLayout = await page.evaluate(() => {
             const shell = document.querySelector('#shell').getBoundingClientRect();
             const composer = document.querySelector('#composer').getBoundingClientRect();

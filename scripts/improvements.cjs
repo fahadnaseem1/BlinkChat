@@ -30,8 +30,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         assert.match(hostAlias, /^Guest [0-9A-F]{6}$/);
         await host.locator('#new-room').click();
         await host.locator('#chat-name').fill('New controls');
-        await host.locator('#message-settings summary').click();
-        await host.locator('#read-grace').selectOption('30');
+        assert.equal(await host.locator('#message-settings').count(), 0);
         await host.locator('#create-submit').click();
         await host.waitForFunction(() =>
             document.querySelector('#invite-link').value.includes('#invite='),
@@ -146,15 +145,14 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         const snapshot = await (
             await hostContext.request.get(`${origin}/api/rooms/${roomId}`)
         ).json();
-        assert.equal(snapshot.room.readGraceSeconds, 30);
         const viewed = snapshot.messages.find((m) => m.seenAt);
         assert.ok(viewed);
-        assert.ok(Date.parse(viewed.disappearsAt) - Date.parse(viewed.seenAt) <= 30000);
+        assert.equal(viewed.roomEndsAt, snapshot.room.expiresAt);
         assert.equal(await guest.locator('#receipts-expiry').count(), 0);
         assert.match(await guest.locator('#receipts-description').textContent(), /viewed/);
         await guest.locator('#close-receipts').click();
         console.log(
-            'PASS: native sharing, local QR, custom countdown, member close denial, arrival announcements, keyboard focus',
+            'PASS: native sharing, local QR, member close denial, arrival announcements, and keyboard focus',
         );
         await guest.locator('#draft').fill('This draft must be cleared');
         await guest.locator('#chat-options').click();
