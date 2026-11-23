@@ -1,0 +1,21 @@
+services:
+    blinkchat:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        image: blinkchat:local
+        ports:
+            - "127.0.0.1:${PORT:-8080}:${PORT:-8080}"
+        environment:
+            SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+            PORT: ${PORT:-8080}
+            BLINK_ORIGIN: ${BLINK_ORIGIN:-http://localhost:8080}
+            BLINK_DATA_DIR: /data/blinkchat
+            BLINK_DB_PASSWORD: ${BLINK_DB_PASSWORD:?Set BLINK_DB_PASSWORD in your local .env file}
+        volumes:
+            - blinkchat-data:/data
+        restart: unless-stopped
+        stop_grace_period: 60s
+
+volumes:
+    blinkchat-data:

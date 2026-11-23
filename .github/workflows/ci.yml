@@ -1,0 +1,58 @@
+name: Build and verify deployment
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: deployment-check-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    test-and-docker:
+        runs-on: ubuntu-latest
+        timeout-minutes: 25
+        steps:
+            - name: Check out source
+              uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+
+            - name: Install Java 21
+              uses: actions/setup-java@v6
+              with:
+                  distribution: temurin
+                  java-version: '21'
+                  cache: gradle
+
+            - name: Run backend tests and package the app
+              run: |
+                  chmod +x gradlew
+                  ./gradlew test bootJar --no-daemon
+
+            - name: Build the Docker image
+              run: docker build --tag blinkchat:ci .
+
+            - name: Verify hosted container and persistent storage
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  trap 'docker rm --force blinkchat-ci >/dev/null 2>&1 || true; docker volume rm blinkchat-ci-data >/dev/null 2>&1 || true' EXIT
+                  BLINK_DB_PASSWORD="$(openssl rand -hex 32)"
+                  export BLINK_DB_PASSWORD
+                  echo "::add-mask::$BLINK_DB_PASSWORD"
+                  docker volume create blinkchat-ci-data >/dev/null
+                  docker run --detach --name blinkchat-ci --stop-timeout 60 \
+                      --publish 127.0.0.1:18080:10000 \
+                      --mount source=blinkchat-ci-data,target=/data \
+                      --env PORT=10000 \
+                      --env SPRING_PROFILES_ACTIVE=hosted \
+                      --env RENDER_EXTERNAL_URL=https://blinkchat-ci.invalid \
+                      --env BLINK_DB_PASSWORD \
+                      blinkchat:ci >/dev/null
+                  python3 scripts/deployment-smoke.py --restart-container blinkchat-ci

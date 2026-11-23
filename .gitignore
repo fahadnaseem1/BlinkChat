@@ -47,3 +47,7 @@ data/
 node_modules/
 playwright-report/
 test-results/
+
+# Local cloud credentials and OS metadata
+.aws/
+.DS_Store

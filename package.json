@@ -1,6 +1,14 @@
 {
-  "name": "blinkchat-browser-checks",
-  "private": true,
-  "scripts": {"test:browser": "node scripts/browser-smoke.cjs", "test:rooms": "node scripts/room-navigation.cjs"},
-  "devDependencies": {"playwright": "1.58.2"}
+    "name": "blinkchat-browser-checks",
+    "private": true,
+    "scripts": {
+        "test:browser": "node scripts/browser-smoke.cjs",
+        "test:rooms": "node scripts/room-navigation.cjs",
+        "test:group": "node scripts/group-chat.cjs",
+        "test:ui": "node scripts/ui-polish.cjs",
+        "test:ux": "node scripts/ux-flows.cjs"
+    },
+    "devDependencies": {
+        "playwright": "1.58.2"
+    }
 }

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://render.com/schema/render.yaml.json
+# H2 and the in-memory WebSocket broker require exactly one service instance.
+services:
+    - type: web
+      name: blinkchat
+      runtime: docker
+      plan: 0.5c-512mb
+      region: singapore
+      branch: main
+      numInstances: 1
+      dockerfilePath: ./Dockerfile
+      dockerContext: .
+      healthCheckPath: /api/health
+      autoDeployTrigger: checksPass
+      maxShutdownDelaySeconds: 60
+      disk:
+          name: blinkchat-data
+          mountPath: /data
+          sizeGB: 1
+      envVars:
+          - key: SPRING_PROFILES_ACTIVE
+            value: hosted
+          - key: BLINK_DATA_DIR
+            value: /data/blinkchat
+          - key: BLINK_DB_PASSWORD
+            generateValue: true
+          # BLINK_ORIGIN defaults to Render's injected RENDER_EXTERNAL_URL.
+          # Set BLINK_ORIGIN in the Dashboard only if using a custom HTTPS domain.
