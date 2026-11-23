@@ -802,11 +802,9 @@ function renderReceiptDetails() {
         row.append(name, state);
         $('receipts-list').append(row);
     }
-    const expiry = `Expires in ${remaining(message.disappearsAt)}`;
-    if ($('receipts-expiry').textContent !== expiry) $('receipts-expiry').textContent = expiry;
     $('receipts-description').textContent = message.seenAt
-        ? 'Everyone this message was sent to has viewed it. The short countdown has started; it may end sooner when the room closes.'
-        : `The ${room.readGraceSeconds}s countdown starts after all ${recipients.length} original ${recipients.length === 1 ? 'recipient has' : 'recipients have'} viewed this message. Until then, its unread timer applies. Later members do not join this message’s audience.`;
+        ? 'Everyone this message was sent to has viewed it.'
+        : `Waiting for all ${recipients.length} original ${recipients.length === 1 ? 'recipient' : 'recipients'} to view this message. Later members are not included.`;
 }
 $('close-receipts').onclick = () => $('receipts-dialog').close();
 $('receipts-dialog').addEventListener('close', () => {

@@ -132,7 +132,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         );
         assert.equal(await riley.locator('.message-timer').count(), 0);
         await riley.locator('.bubble').first().click();
-        await riley.locator('#receipts-expiry').waitFor();
+        assert.equal(await riley.locator('#receipts-expiry').count(), 0);
         await riley.locator('#close-receipts').click();
         assert.equal(
             await riley.evaluate(() => document.documentElement.scrollWidth > innerWidth),

@@ -150,8 +150,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         const viewed = snapshot.messages.find((m) => m.seenAt);
         assert.ok(viewed);
         assert.ok(Date.parse(viewed.disappearsAt) - Date.parse(viewed.seenAt) <= 30000);
-        await guest.locator('#receipts-expiry').waitFor();
-        assert.match(await guest.locator('#receipts-description').textContent(), /countdown/);
+        assert.equal(await guest.locator('#receipts-expiry').count(), 0);
+        assert.match(await guest.locator('#receipts-description').textContent(), /viewed/);
         await guest.locator('#close-receipts').click();
         console.log(
             'PASS: native sharing, local QR, custom countdown, member close denial, arrival announcements, keyboard focus',
