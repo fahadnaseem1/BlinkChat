@@ -88,7 +88,14 @@ public class ChatService {
     }
 
     public Map<String, Object> create(GuestPrincipal p, long ttl, String title) {
+        return create(p, ttl, title, null);
+    }
+
+    public Map<String, Object> create(GuestPrincipal p, long ttl, String title, Long grace) {
         identity.require(p);
+        if (grace != null && !Set.of(10L, 30L, 60L).contains(grace)) {
+            throw Problem.invalid("Choose a read countdown of 10, 30, or 60 seconds.");
+        }
         if (title != null) {
             title = title.strip();
             if (
@@ -114,7 +121,7 @@ public class ChatService {
         r.createdAt = clock.instant();
         r.expiresAt = r.createdAt.plus(policy.roomLifetime);
         r.ttlSeconds = ttl;
-        r.graceSeconds = policy.readGrace.toSeconds();
+        r.graceSeconds = grace == null ? policy.readGrace.toSeconds() : grace;
         r.revision = 1;
         db.save(r);
         member(r, p.guestId(), 1);
@@ -222,10 +229,34 @@ public class ChatService {
                 "This chat has reached its limit of " + policy.maxParticipants + " people."
             );
         }
+        if (
+            !db
+                .entityManager()
+                .createQuery("from Membership where roomId=:r and guestId=:g", Membership.class)
+                .setParameter("r", r.id)
+                .setParameter("g", p.guestId())
+                .getResultList()
+                .isEmpty()
+        ) {
+            throw new Problem(
+                409,
+                "already_left",
+                "You left this chat. Use a new guest session to rejoin."
+            );
+        }
         capacity(p);
         identity.require(p);
         // Allocate the next slot under the room lock. The same link remains usable by other guests.
-        member(r, p.guestId(), members.size() + 1);
+        int nextSlot =
+            db
+                .entityManager()
+                .createQuery(
+                    "select coalesce(max(slot), 0) from Membership where roomId=:r",
+                    Integer.class
+                )
+                .setParameter("r", r.id)
+                .getSingleResult() + 1;
+        member(r, p.guestId(), nextSlot);
         if (invitation.consumedAt == null) {
             invitation.consumedAt = clock.instant();
             invitation.consumedBy = p.guestId();
@@ -324,7 +355,7 @@ public class ChatService {
             return v;
         }
         active(r);
-        if (!r.state.equals("active")) {
+        if (!r.state.equals("active") || participants(room).size() < 2) {
             throw new Problem(409, "waiting", "Wait for someone to join before sending.");
         }
         if (body == null || body.isBlank() || body.codePointCount(0, body.length()) > 2000) {
@@ -411,8 +442,52 @@ public class ChatService {
         return view(r, m, p.guestId());
     }
 
+    public void leave(GuestPrincipal p, String id) {
+        Room r = authorized(p, id);
+        backfillRecipients(r);
+        Membership membership = db
+            .members(id)
+            .stream()
+            .filter(m -> m.guestId.equals(p.guestId()))
+            .findFirst()
+            .orElseThrow();
+        membership.leftAt = clock.instant();
+        db.entityManager().flush();
+        List<Membership> remaining = db.members(id);
+        r.revision++;
+        events.publish(List.of(p.guestId()), "room.left", id, r.revision, Map.of());
+        if (remaining.isEmpty()) {
+            r.closedAt = clock.instant();
+            r.state = "closed";
+            removeAll(r, "room_closed");
+            db.entityManager()
+                .createQuery("update Invitation set revokedAt=:n where roomId=:r")
+                .setParameter("n", clock.instant())
+                .setParameter("r", id)
+                .executeUpdate();
+        } else {
+            if (r.creatorId.equals(p.guestId())) {
+                r.creatorId = remaining.getFirst().guestId;
+                // The new creator can issue their own invitation.
+                db.entityManager()
+                    .createQuery("update Invitation set revokedAt=:n where roomId=:r")
+                    .setParameter("n", clock.instant())
+                    .setParameter("r", id)
+                    .executeUpdate();
+            }
+            emit(r, "room.updated", Map.of());
+        }
+    }
+
     public void close(GuestPrincipal p, String id) {
         Room r = authorized(p, id);
+        if (!r.creatorId.equals(p.guestId())) {
+            throw new Problem(
+                403,
+                "creator_required",
+                "Only the creator can end this chat for everyone."
+            );
+        }
         if (r.closedAt == null) {
             r.closedAt = clock.instant();
             r.state = "closed";
@@ -558,6 +633,7 @@ public class ChatService {
                 .toList()
         );
         audience.add(m.senderId);
+        audience.retainAll(participants(r.id));
         events.publish(audience, type, r.id, r.revision, data);
         List<String> others = participants(r.id)
             .stream()
