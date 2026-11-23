@@ -6,7 +6,9 @@
         "test:rooms": "node scripts/room-navigation.cjs",
         "test:group": "node scripts/group-chat.cjs",
         "test:ui": "node scripts/ui-polish.cjs",
-        "test:ux": "node scripts/ux-flows.cjs"
+        "test:ux": "node scripts/ux-flows.cjs",
+        "test:improvements": "node scripts/improvements.cjs",
+        "test:all": "npm run test:browser && npm run test:rooms && npm run test:group && npm run test:ui && npm run test:ux && npm run test:improvements"
     },
     "devDependencies": {
         "playwright": "1.58.2"
