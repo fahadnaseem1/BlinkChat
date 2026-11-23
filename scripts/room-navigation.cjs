@@ -23,8 +23,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await first.goto(origin);
         await first.locator('#name').fill('Alex');
         await first.locator('#enter').click();
-        await first.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await first.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
 
         async function create(title) {
@@ -81,10 +81,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         }
         await second.locator('#draft').fill('Only in the weekend chat');
         await second.locator('#send').click();
-        await first
-            .locator(`[data-room-id="${picnic.id}"] .room-badge`)
-            .getByText('New message', { exact: true })
-            .waitFor();
+        await first.locator(`[data-room-id="${picnic.id}"] .room-badge`).waitFor();
         assert.equal(await first.locator('#room-title').textContent(), 'Movie night');
         assert.ok(
             !(await first.locator('#messages').textContent()).includes('Only in the weekend chat'),
@@ -108,8 +105,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         );
         assert.equal(await first.locator('#composer').isVisible(), false);
         await select(picnic.id);
-        await first.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await first.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
         await first.waitForTimeout(1200);
         assert.equal(await first.locator('#room-title').textContent(), 'Weekend plans');
@@ -118,15 +115,16 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         );
 
         await select(movies.id);
-        await first.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await first.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
         await first.reload();
-        await first.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await first.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
         assert.equal(await first.locator('#room-title').textContent(), 'Movie night');
-        assert.equal(await first.locator('#copy').textContent(), 'Create invitation');
+        assert.equal(await first.locator('#copy').textContent(), 'Create link');
+        await first.locator('#invite-friends').click();
         await first.locator('#copy').click();
         await first.waitForFunction(() =>
             document.querySelector('#invite-link').value.includes('#invite='),
