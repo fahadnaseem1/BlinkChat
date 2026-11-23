@@ -10,11 +10,11 @@ Install Java 21, then run:
 ./gradlew bootRun
 ```
 
-Open http://localhost:8080. Choose a name, create a conversation, and share its invitation with a second browser profile or device. Use a private browser window to simulate a second person. Tabs in the same profile share one identity.
+Open http://localhost:8080. Enter a nickname or leave it blank for a random guest alias, create a conversation, and share its invitation with a second browser profile or device. Use a private browser window to simulate a second person. Tabs in the same profile share one identity.
 
 For LAN testing, set `BLINK_ORIGIN` to the exact URL both devices use, such as `http://192.168.1.10:8080`. Use that URL on both devices; WebSocket origins are deliberately restricted. Plain HTTP cookies are for local development only.
 
-Give a chat an optional name, such as “Weekend plans,” to distinguish it in your list. All participants see the same name and short chat code in chat details. Active chats and invitations waiting for a friend appear in separate groups, with the open chat highlighted. Switching chats keeps each invitation with its chat; refreshing returns to the selected chat. After a refresh, select **Create invitation** in a waiting chat to generate a fresh link.
+Give a chat an optional name, such as “Weekend plans,” to distinguish it in your list. All participants see the same name and short chat code in chat details. Chats appear in one list, with the open chat highlighted and new messages marked by a dot. Switching chats keeps each invitation with its chat; refreshing returns to the selected chat. After a refresh, open **Invite** and select **Create link** to generate a fresh invitation.
 
 Only one person creates the chat. Their friend opens that chat's invitation and selects **Join chat**; creating another chat does not join the first one. Use `npm run test:rooms` to verify multiple chats, invitation isolation, notifications, and refresh selection with two browser identities.
 
@@ -81,9 +81,11 @@ Members can **Leave chat** without ending the conversation for others. Leaving c
 
 Only the creator can **End for everyone**. If the creator leaves, ownership passes to the earliest remaining member and the previous invitation is revoked. The new creator can generate a new invitation. When the last member leaves, the room closes and its message content is removed.
 
-New chats offer a read countdown of 10 seconds (default), 30 seconds, or 1 minute. This countdown starts after every original recipient views a message, and never extends the unread deadline or room lifetime. Each message shows its remaining time; select it for receipt and timer details.
+New chats offer a read countdown of 10 seconds (default), 30 seconds, or 1 minute. This countdown starts after every original recipient views a message, and never extends the unread deadline or room lifetime. Messages show a small timestamp and delivery ticks. Tap a message for its expiry countdown and per-person receipts. New chats use a 10-second read countdown and a 1-hour unread lifetime by default; expand **Message settings** during creation to choose different timers.
 
-Invitation panels include native sharing when the browser supports it and a locally generated QR code. No invitation is sent to an external QR service. The bundled QR encoder comes from `qrcode-terminal` 0.12.0; attribution and licensing are in `src/main/resources/static/vendor/QR-LICENSE.txt`.
+One invitation sheet provides Copy link, Share, and an expandable QR code. Link replacement lives under **Chat details → Invitation**. Inside the QR section, Share QR sends the PNG image when file sharing is supported; Save QR downloads it otherwise. No invitation is sent to an external QR service. The bundled QR encoder comes from `qrcode-terminal` 0.12.0; attribution and licensing are in `src/main/resources/static/vendor/QR-LICENSE.txt`.
+
+The compact interface uses flat chat rows, a 260px desktop sidebar, smaller typography, and a clickable chat name that opens members and settings together. The options menu contains Chat details, Leave chat, and End for everyone (creator only). Connection warnings appear only when needed, and privacy and timer explanations live in details. Mobile controls retain 44px touch targets.
 
 The browser frontend separates room presentation/state, invitation management, message rendering, and session memory into local modules. Incoming messages have a dedicated screen-reader announcement; message controls restore keyboard focus after updates.
 
