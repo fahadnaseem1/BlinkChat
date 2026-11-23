@@ -129,6 +129,7 @@ public final class Records {
         @Column(nullable = false)
         public long sequence;
 
+        public String replyToId;
         public Instant acceptedAt;
         public Instant deliveredAt;
         public Instant seenAt;

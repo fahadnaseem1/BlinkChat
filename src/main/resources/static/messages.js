@@ -25,6 +25,7 @@ export function renderMessages({
     setReceiptMessageId,
     retrySend,
     verifyPending,
+    replyTo,
 }) {
     visibility.clear();
     const area = $('messages');
@@ -87,6 +88,30 @@ export function renderMessages({
         row.classList.toggle('grouped', grouped);
         const content = document.createElement('div');
         content.className = 'message-content';
+        if (m.replyToId) {
+            const replied = messages.get(m.replyToId);
+            if (replied?.body) {
+                const quote = document.createElement('button');
+                quote.type = 'button';
+                quote.className = 'reply-quote';
+                quote.dataset.action = 'reply-target';
+                quote.onclick = () => {
+                    const target = area.querySelector(`[data-id="${CSS.escape(m.replyToId)}"]`);
+                    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                };
+                const name =
+                    replied.senderId === me.id
+                        ? 'You'
+                        : room.participants.find((p) => p.id === replied.senderId)?.displayName ||
+                          'Group member';
+                const quoteName = document.createElement('strong');
+                quoteName.textContent = name;
+                const quoteBody = document.createElement('span');
+                quoteBody.textContent = replied.body;
+                quote.append(quoteName, quoteBody);
+                content.append(quote);
+            }
+        }
         const body = document.createElement('button');
         body.type = 'button';
         body.className = 'bubble';
@@ -132,6 +157,16 @@ export function renderMessages({
             }
         }
         content.append(body, meta);
+        if (room.state === 'active') {
+            const reply = document.createElement('button');
+            reply.type = 'button';
+            reply.className = 'reply-action';
+            reply.dataset.action = 'reply';
+            reply.textContent = 'Reply';
+            reply.setAttribute('aria-label', `Reply to message ${m.sequence}`);
+            reply.onclick = () => replyTo(m.id);
+            content.append(reply);
+        }
         row.append(content);
         previousMessage = m;
         area.append(row);

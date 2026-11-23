@@ -186,6 +186,13 @@
                 <button id="new-messages" class="new-messages" hidden>New messages</button>
                 <div id="typing" class="typing" aria-live="polite"></div>
                 <form id="composer">
+                    <div id="reply-preview" class="reply-preview" hidden>
+                        <div>
+                            <strong id="reply-author"></strong>
+                            <span id="reply-body"></span>
+                        </div>
+                        <button type="button" id="cancel-reply" aria-label="Cancel reply">×</button>
+                    </div>
                     <label class="sr-only" for="draft">Message</label
                     ><textarea
                         id="draft"
@@ -194,7 +201,21 @@
                         maxlength="4000"
                         disabled
                     ></textarea
-                    ><button id="send" class="primary" aria-label="Send" disabled>➤</button>
+                    ><button id="send" class="primary" aria-label="Send" disabled>
+                        <svg
+                            class="send-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                        >
+                            <path d="M22 2 11 13" />
+                            <path d="m22 2-7 20-4-9-9-4 20-7Z" />
+                        </svg>
+                    </button>
                 </form>
             </section>
         </main>

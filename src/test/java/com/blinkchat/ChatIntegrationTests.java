@@ -162,6 +162,37 @@ class ChatIntegrationTests {
     }
 
     @Test
+    void repliesReferenceAnAvailableMessageInTheSameRoom() {
+        join();
+        Map<String, Object> original = send();
+        Map<String, Object> reply = chat.send(
+            a,
+            room,
+            UUID.randomUUID().toString(),
+            "A reply",
+            (String) original.get("id")
+        );
+        assertThat(reply).containsEntry("replyToId", original.get("id"));
+        assertThat((List<?>) chat.snapshot(a, room, 0, null).get("messages")).hasSize(2);
+        List<?> recipientMessages = (List<?>) chat.snapshot(b, room, 0, null).get("messages");
+        Map<?, ?> visibleReply = (Map<?, ?>) recipientMessages.get(1);
+        assertThat(visibleReply.get("replyToId")).isEqualTo(original.get("id"));
+        assertThat(visibleReply.get("body")).isEqualTo("A reply");
+
+        assertThatThrownBy(() ->
+            chat.send(
+                a,
+                room,
+                UUID.randomUUID().toString(),
+                "Wrong chat",
+                UUID.randomUUID().toString()
+            )
+        ).isInstanceOfSatisfying(Problem.class, e ->
+            assertThat(e.category).isEqualTo("invalid_input")
+        );
+    }
+
+    @Test
     void seenMessagesStillCountTowardTheRoomLimit() {
         join();
         policy.maxMessages = 1;

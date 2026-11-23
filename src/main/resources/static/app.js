@@ -62,6 +62,14 @@ let editingName = false;
 let previewReady = false;
 let requestedRoom;
 let receiptMessageId;
+let replyToMessageId = null;
+function cancelReply() {
+    replyToMessageId = null;
+    $('reply-preview').hidden = true;
+    $('reply-author').textContent = '';
+    $('reply-body').textContent = '';
+}
+$('cancel-reply').onclick = cancelReply;
 const initialChat = location.hash.startsWith('#chat=') ? location.hash.slice(6) : null;
 let joinSecret = location.hash.startsWith('#invite=') ? location.hash.slice(8) : null;
 // Remove the invitation from the address bar once it has been captured for joining.
@@ -136,6 +144,7 @@ function expireSession() {
     $('end-dialog').close();
     $('leave-dialog').close();
     receiptMessageId = null;
+    cancelReply();
     $('invite-link').value = '';
     invitations.clear();
     showInvite();
@@ -302,6 +311,21 @@ function render() {
         },
         retrySend,
         verifyPending,
+        replyTo: (id) => {
+            const message = messages.get(id);
+            if (!message?.body) return;
+            replyToMessageId = id;
+            const name =
+                message.senderId === me.id
+                    ? 'You'
+                    : room.participants.find((p) => p.id === message.senderId)?.displayName ||
+                      'Group member';
+            $('reply-author').textContent = name;
+            $('reply-body').textContent = message.body;
+            $('reply-preview').hidden = false;
+            $('draft').focus();
+            render();
+        },
     });
 }
 
@@ -326,6 +350,7 @@ async function open(id) {
         } catch {}
     }
     rememberDraft();
+    cancelReply();
     $('invite-dialog').close();
     $('receipts-dialog').close();
     receiptMessageId = null;
@@ -1028,6 +1053,7 @@ function publishPending(id) {
             roomId: item.roomId,
             operationId: id,
             body: item.body,
+            replyToId: item.replyToId,
         });
         item.timer = setTimeout(() => {
             if (pending.get(id) !== item) return;
@@ -1055,10 +1081,12 @@ $('composer').onsubmit = (event) => {
         body: $('draft').value,
         state: 'sending',
         verified: false,
+        replyToId: replyToMessageId,
     });
     drafts.delete(room.id);
     $('draft').value = '';
     $('draft').style.height = 'auto';
+    cancelReply();
     publishPending(id);
     controls();
     $('draft').focus();

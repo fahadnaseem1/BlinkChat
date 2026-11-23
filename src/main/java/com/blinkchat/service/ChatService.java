@@ -320,6 +320,16 @@ public class ChatService {
     }
 
     public Map<String, Object> send(GuestPrincipal p, String room, String operation, String body) {
+        return send(p, room, operation, body, null);
+    }
+
+    public Map<String, Object> send(
+        GuestPrincipal p,
+        String room,
+        String operation,
+        String body,
+        String replyToId
+    ) {
         Room r = authorized(p, room);
         backfillRecipients(r);
         if (operation == null || !operation.matches("[A-Za-z0-9-]{16,80}")) {
@@ -338,6 +348,17 @@ public class ChatService {
         }
         if (body == null || body.isBlank() || body.codePointCount(0, body.length()) > 2000) {
             throw Problem.invalid("Messages must contain 1–2000 characters.");
+        }
+        if (replyToId != null) {
+            MessageRecord repliedTo = db.find(MessageRecord.class, replyToId);
+            if (
+                repliedTo == null ||
+                !repliedTo.roomId.equals(room) ||
+                !available(r, repliedTo) ||
+                !eligible(repliedTo, p.guestId())
+            ) {
+                throw Problem.invalid("The message you are replying to is not available.");
+            }
         }
         if (
             r.acceptedCount >= policy.maxSends ||
@@ -360,6 +381,7 @@ public class ChatService {
         m.senderId = p.guestId();
         m.operationId = operation;
         m.sequence = r.nextSequence++;
+        m.replyToId = replyToId;
         m.acceptedAt = clock.instant();
         m.revision = ++r.revision;
         r.acceptedCount++;
@@ -491,6 +513,7 @@ public class ChatService {
         v.put("senderId", m.senderId);
         v.put("operationId", m.operationId);
         v.put("sequence", m.sequence);
+        v.put("replyToId", m.replyToId);
         v.put("acceptedAt", m.acceptedAt);
         v.put("roomEndsAt", r.expiresAt);
         v.put("deliveredAt", m.deliveredAt);

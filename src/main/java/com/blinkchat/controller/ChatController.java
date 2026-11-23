@@ -28,12 +28,19 @@ public class ChatController {
         String operationId,
         String body,
         String messageId,
-        Boolean typing
+        Boolean typing,
+        String replyToId
     ) {}
 
     @MessageMapping("/chat.send")
     public void send(Command c, Principal p) {
-        chat.send(Connections.principal(p), c.roomId(), c.operationId(), c.body());
+        chat.send(
+            Connections.principal(p),
+            c.roomId(),
+            c.operationId(),
+            c.body(),
+            c.replyToId()
+        );
     }
 
     @MessageMapping("/chat.delivered")

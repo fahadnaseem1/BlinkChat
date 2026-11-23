@@ -526,13 +526,86 @@ header {
     font-size: 12px;
 }
 #composer {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 42px;
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
     margin: 0 16px max(12px, env(safe-area-inset-bottom));
     padding: 0;
     background: transparent;
+}
+.reply-preview {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: center;
+    padding: 7px 8px 7px 12px;
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    background: #f7f6fb;
+}
+.reply-preview > div {
+    min-width: 0;
+}
+.reply-preview strong,
+.reply-preview span,
+.reply-quote strong,
+.reply-quote span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.reply-preview strong {
+    color: var(--accent);
+    font-size: 12px;
+}
+.reply-preview span {
+    color: var(--muted);
+    font-size: 12px;
+}
+#cancel-reply {
+    min-height: 44px;
+    background: transparent;
+    font-size: 20px;
+}
+.reply-quote {
+    width: min(100%, 420px);
+    min-height: 40px;
+    margin-bottom: 4px;
+    padding: 6px 8px;
+    text-align: left;
+    border-left: 3px solid #9b86e8;
+    border-radius: 6px;
+    background: #f7f6fb;
+}
+.reply-quote strong {
+    color: var(--accent);
+    font-size: 11px;
+}
+.reply-quote span {
+    font-size: 12px;
+    color: var(--muted);
+}
+.reply-action {
+    min-height: 28px;
+    margin-top: 2px;
+    padding: 2px 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    opacity: 0;
+}
+.bubble-row:hover .reply-action,
+.reply-action:focus-visible {
+    opacity: 1;
+}
+@media (hover: none) {
+    .reply-action {
+        opacity: 1;
+    }
 }
 #draft {
     border: 1px solid var(--border);
@@ -541,18 +614,31 @@ header {
     background: #fff;
     line-height: 1.4;
     max-height: 160px;
-    min-height: 44px;
-    padding: 11px 16px;
+    min-height: 42px;
+    padding: 8px 14px;
+}
+#draft:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    outline-offset: 1px;
 }
 #send {
     display: grid;
     place-items: center;
-    width: 40px;
-    min-width: 40px;
-    min-height: 40px;
+    width: 42px;
+    min-width: 42px;
+    min-height: 42px;
     padding: 0;
     border-radius: 50%;
-    font-size: 17px;
+}
+#send:disabled {
+    background: #e8e4f5;
+    color: #806dc6;
+    opacity: 1;
+}
+.send-icon {
+    display: block;
+    width: 18px;
+    height: 18px;
 }
 .new-messages {
     position: absolute;
