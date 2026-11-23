@@ -18,7 +18,7 @@ Give a chat an optional name, such as “Weekend plans,” to distinguish it in 
 
 Only one person creates the chat. Their friend opens that chat's invitation and selects **Join chat**; creating another chat does not join the first one. Use `npm run test:rooms` to verify multiple chats, invitation isolation, notifications, and refresh selection with two browser identities.
 
-Messages remain until their selected unread TTL (1 minute, 5 minutes, 1 hour, or 24 hours). Once all original recipients have viewed a message, its availability shortens to at most 10 more seconds. Rooms and credentials expire after 24 hours. Invitations expire after 15 minutes and can admit multiple guests, up to the room limit. End chat clears content for everyone.
+Messages remain until their selected unread TTL (1 minute, 5 minutes, 1 hour, or 24 hours). Once all original recipients have viewed a message, its availability shortens to the room’s selected read countdown (10 seconds by default). Rooms and credentials expire after 24 hours. Invitations expire after 15 minutes and can admit multiple guests, up to the room limit. Only the creator can end a chat for everyone; members can leave independently.
 
 Bodies and drafts live only in page memory on the client. Refresh discards drafts. H2 retains active server data under `./data`; keep this directory private. Never place it inside static resources or commit it. Credentials and invitations are stored as SHA-256 digests of independent random 256-bit secrets.
 
@@ -51,11 +51,11 @@ The UX check covers invitation previews without joining, returning guest names, 
 
 `GET /api/csrf` returns the CSRF header name and token. Send this header on every mutation and the STOMP CONNECT frame. `POST /api/guests` takes `displayName` and sets an HttpOnly guest cookie. `GET /api/me`, `PATCH /api/me`, and `POST /api/logout` inspect, rename, and revoke that identity.
 
-`GET/POST /api/rooms` lists/creates your rooms (creation takes `ttlSeconds` and an optional `title` of up to 40 characters). `GET /api/rooms/{id}` returns an authorized snapshot, policy, participants, server time, revision, and up to 100 available messages. Page with `GET /api/rooms/{id}/messages?after={sequence}&revision={baseline}`; a changed revision returns `resynchronize`. `POST /api/rooms/{id}/invites` regenerates an invitation while waiting. `POST /api/invites/preview` takes `secret` and returns only chat metadata without creating an identity or membership; it requires CSRF even before guest entry. `POST /api/invites/redeem` takes `secret`. `GET /api/rooms/{id}/operations/{operationId}` checks whether the authenticated guest’s send was accepted; expired accepted sends return metadata without a body. `POST /api/rooms/{id}/close` ends the room. Health: `GET /api/health`.
+`GET/POST /api/rooms` lists/creates your rooms (creation takes `ttlSeconds`, an optional `title` of up to 40 characters, and optional `readGraceSeconds` of 10, 30, or 60). `GET /api/rooms/{id}` returns an authorized snapshot, policy, participants, server time, revision, and up to 100 available messages. Page with `GET /api/rooms/{id}/messages?after={sequence}&revision={baseline}`; a changed revision returns `resynchronize`. `POST /api/rooms/{id}/invites` regenerates an invitation while waiting. `POST /api/invites/preview` takes `secret` and returns only chat metadata without creating an identity or membership; it requires CSRF even before guest entry. `POST /api/invites/redeem` takes `secret`. `GET /api/rooms/{id}/operations/{operationId}` checks whether the authenticated guest’s send was accepted; expired accepted sends return metadata without a body. `POST /api/rooms/{id}/close` ends the room for everyone (creator only). `POST /api/rooms/{id}/leave` revokes the current guest’s membership. Health: `GET /api/health`.
 
 Connect native WebSocket at `/ws`, STOMP 1.2, heartbeats every 10 seconds. Only subscribe to `/user/queue/events` and `/user/queue/errors`. Only send to `/app/chat.send`, `/app/chat.delivered`, `/app/chat.seen`, and `/app/chat.typing`. Send fields: `roomId`, `operationId`, `body`. Receipt fields: `roomId`, `messageId`. Typing fields: `roomId`, `typing`. Sender identity comes exclusively from authentication. Arbitrary subscriptions and direct broker sends are rejected.
 
-Events carry `type`, `roomId`, `revision`, `serverTime`, and `data`. Durable types are `room.updated`, `message.accepted`, `message.delivered`, `message.seen`, `message.removed`, and `room.closed`. Transient types are `presence.changed` and `typing.changed`. Acceptance includes the operation ID. Errors contain a category, safe message, and correlation ID.
+Events carry `type`, `roomId`, `revision`, `serverTime`, and `data`. Durable types are `room.updated`, `message.accepted`, `message.delivered`, `message.seen`, `message.removed`, `room.left`, and `room.closed`. Transient types are `presence.changed` and `typing.changed`. Acceptance includes the operation ID. Errors contain a category, safe message, and correlation ID.
 
 Durable changes use a room-row lock and publish after commit. Retries never recreate expired content. Snapshots replace the active message set; revision gaps, reconnects, focus restoration, and a 30-second foreground check trigger reconciliation. This provides durable acceptance and eventual repair, without promising exactly-once socket delivery.
 
@@ -74,3 +74,17 @@ Limits and timings bind under `blink.*` in Spring configuration (`room-lifetime`
 Temporary means unavailable through the app after its deadline and logically deleted from active database content. It does not mean forensic erasure, screenshot prevention, verified real-world identity, or end-to-end encryption. The server processes plaintext. Provider snapshots and database pages can outlive logical deletion. Do not enable framework message tracing or request-body logs in hosting.
 
 Local automated tests do not replace a physical phone check, public TLS/socket verification across two networks, a controlled hosted restart with the selected disk, or a measured load exercise. Those deployment acceptance gates remain for the selected host. Optional same-person device linking and all deferred features in the guide are outside this release.
+
+## Conversation controls
+
+Members can **Leave chat** without ending the conversation for others. Leaving clears that room’s drafts and pending sends on the page and revokes that guest’s access. Rejoining requires a new guest session and a valid invitation. Messages sent before leaving keep their original recipients and deadlines; an unread recipient who leaves does not count as having viewed them.
+
+Only the creator can **End for everyone**. If the creator leaves, ownership passes to the earliest remaining member and the previous invitation is revoked. The new creator can generate a new invitation. When the last member leaves, the room closes and its message content is removed.
+
+New chats offer a read countdown of 10 seconds (default), 30 seconds, or 1 minute. This countdown starts after every original recipient views a message, and never extends the unread deadline or room lifetime. Each message shows its remaining time; select it for receipt and timer details.
+
+Invitation panels include native sharing when the browser supports it and a locally generated QR code. No invitation is sent to an external QR service. The bundled QR encoder comes from `qrcode-terminal` 0.12.0; attribution and licensing are in `src/main/resources/static/vendor/QR-LICENSE.txt`.
+
+The browser frontend separates room presentation/state, invitation management, message rendering, and session memory into local modules. Incoming messages have a dedicated screen-reader announcement; message controls restore keyboard focus after updates.
+
+`npm run test:improvements` checks these controls; `npm run test:all` runs every browser suite. CI installs the pinned dependencies with `npm ci`, starts an isolated in-memory app, and runs all browser suites before container checks. Physical-device native sharing and camera scanning remain manual checks.
