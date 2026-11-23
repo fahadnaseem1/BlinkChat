@@ -1,3 +1,7 @@
+import { createSessionMemory } from './session.js';
+import { createRoomMemory, createRoomPresentation } from './room-state.js';
+import { renderMessages, senderColor } from './messages.js';
+import { createInvitations } from './invitations.js';
 import { api, initCsrf } from './api.js';
 import { connect } from './socket.js';
 import { observeVisible } from './visibility.js';
@@ -13,7 +17,7 @@ let connected = false;
 let synced = false;
 let online = [];
 let messages = new Map();
-let pending = new Map();
+
 let seen = new Set();
 let delivered = new Set();
 let revision = 0;
@@ -25,10 +29,16 @@ let lastTyping = 0;
 let syncing = false;
 let dirty = false;
 let loadingRoom = false;
-const drafts = new Map();
-const invitations = new Map();
-const copiedInvitations = new Map();
-const unreadRooms = new Set();
+
+const { drafts, pending, invitations, copiedInvitations, unreadRooms } = createRoomMemory();
+const { chatCode, peerOf, chatLabel, renderRooms } = createRoomPresentation({
+    $,
+    getRoom: () => room,
+    getMe: () => me,
+    getRooms: () => rooms,
+    unreadRooms,
+    open: (id) => open(id),
+});
 let listVersion = 0;
 let creating = false;
 let entryReady = false;
@@ -43,40 +53,26 @@ if (joinSecret) {
     history.replaceState(null, '', location.pathname);
 }
 
+const { showInvite, generateInvite } = createInvitations({
+    $,
+    getRoom: () => room,
+    getMe: () => me,
+    invitations,
+    copiedInvitations,
+    now: () => now(),
+    remaining,
+    api,
+    toast,
+    fail,
+});
+
 // Keep drafts and uncertain sends in memory only; clear their text when the room ends.
-function clearPending(roomId) {
-    for (const [id, item] of pending) {
-        if (roomId && item.roomId !== roomId) continue;
-        clearTimeout(item.timer);
-        item.body = '';
-        pending.delete(id);
-    }
-}
-
-function forgetRoom(roomId) {
-    drafts.delete(roomId);
-    clearPending(roomId);
-    if (room?.id === roomId) {
-        $('draft').value = '';
-        $('draft').style.height = 'auto';
-    }
-}
-
-function rememberDraft() {
-    if (!room || !['active', 'waiting'].includes(room.state)) return;
-    const body = $('draft').value;
-    if (body) drafts.set(room.id, body);
-    else drafts.delete(room.id);
-}
-
-function acceptPending(id) {
-    const item = pending.get(id);
-    if (item) {
-        clearTimeout(item.timer);
-        item.body = '';
-    }
-    pending.delete(id);
-}
+const { clearPending, forgetRoom, rememberDraft, acceptPending } = createSessionMemory({
+    $,
+    getRoom: () => room,
+    drafts,
+    pending,
+});
 
 // Anchor countdowns to server time and a monotonic clock to avoid local clock changes.
 const now = () => serverBase + performance.now() - monoBase;
@@ -107,6 +103,7 @@ function expireSession() {
     listVersion++;
     requestedRoom = null;
     messages.clear();
+    $('message-announcements').textContent = '';
     clearPending();
     drafts.clear();
     $('draft').value = '';
@@ -121,10 +118,12 @@ function expireSession() {
     $('logout-dialog').close();
     $('create-dialog').close();
     $('end-dialog').close();
+    $('leave-dialog').close();
     receiptMessageId = null;
     $('invite-link').value = '';
     $('group-invite-link').value = '';
     invitations.clear();
+    showInvite();
     copiedInvitations.clear();
     unreadRooms.clear();
     me = null;
@@ -140,9 +139,14 @@ function expireSession() {
 
 function controls() {
     const ready =
-        navigator.onLine && connected && synced && !loadingRoom && room?.state === 'active';
+        navigator.onLine &&
+        connected &&
+        synced &&
+        !loadingRoom &&
+        room?.state === 'active' &&
+        room.participants.length >= 2;
     const n = Array.from($('draft').value).length;
-    $('draft').disabled = loadingRoom || room?.state !== 'active';
+    $('draft').disabled = loadingRoom || room?.state !== 'active' || room.participants.length < 2;
     $('send').disabled = !ready || !$('draft').value.trim() || n > 2000;
     $('count').textContent = n > 1800 ? `${2000 - n}` : '';
     $('connection').textContent = !navigator.onLine
@@ -188,90 +192,6 @@ function controls() {
     }
 }
 
-function chatCode(r) {
-    return r.code || r.id.slice(0, 6).toUpperCase();
-}
-
-function peerOf(r) {
-    return r.participants?.find((p) => p.id !== me?.id);
-}
-
-function chatLabel(r) {
-    return (
-        r.title ||
-        ((r.participants?.length || 0) > 2
-            ? `Group chat ${chatCode(r)}`
-            : peerOf(r)
-              ? `Chat with ${peerOf(r).displayName}`
-              : `Chat ${chatCode(r)}`)
-    );
-}
-
-// Conversation list and header rendering.
-function renderRooms() {
-    const focused = document.activeElement?.dataset.roomId;
-    const activeRooms = rooms.filter((item) => ['active', 'waiting'].includes(item.state));
-    $('room-count').textContent = activeRooms.length;
-    $('chat-list-help').hidden = activeRooms.length > 0;
-    $('rooms').replaceChildren();
-    if (!activeRooms.length) {
-        const note = document.createElement('p');
-        note.className = 'room-list-empty';
-        note.textContent = 'No chats yet. Start one and invite your friend.';
-        $('rooms').append(note);
-    }
-    for (const state of ['active', 'waiting']) {
-        const group = activeRooms.filter((r) => r.state === state);
-        if (!group.length) {
-            continue;
-        }
-        const heading = document.createElement('div');
-        heading.className = 'room-group-label';
-        heading.textContent = state === 'active' ? 'CHATTING' : 'WAITING FOR A FRIEND';
-        $('rooms').append(heading);
-        for (const r of group) {
-            const selected = r.id === room?.id;
-            const peer = peerOf(r);
-            const b = document.createElement('button');
-            b.className = 'room-item' + (selected ? ' selected' : '');
-            b.dataset.roomId = r.id;
-            if (selected) {
-                b.setAttribute('aria-current', 'true');
-            }
-            const avatar = document.createElement('span');
-            avatar.className = 'avatar';
-            avatar.textContent = peer?.displayName.slice(0, 1).toUpperCase() || '＋';
-            const info = document.createElement('span');
-            info.className = 'room-info';
-            const name = document.createElement('strong');
-            name.textContent = chatLabel(r);
-            const status = document.createElement('small');
-            status.textContent =
-                r.participants.length > 2
-                    ? `${r.participants.length} members`
-                    : peer
-                      ? `With ${peer.displayName}`
-                      : 'Share an invitation to start';
-            info.append(name, status);
-            b.append(avatar, info);
-            if (unreadRooms.has(r.id)) {
-                const badge = document.createElement('span');
-                badge.className = 'room-badge';
-                badge.textContent = 'New message';
-                b.append(badge);
-                b.setAttribute('aria-label', `${chatLabel(r)}, new message`);
-            }
-            b.onclick = () => open(r.id);
-            $('rooms').append(b);
-        }
-    }
-    if (focused) {
-        [...$('rooms').querySelectorAll('[data-room-id]')]
-            .find((b) => b.dataset.roomId === focused)
-            ?.focus();
-    }
-}
-
 async function list() {
     const version = ++listVersion;
     const result = await api('/rooms');
@@ -305,7 +225,8 @@ function head() {
           : peer
             ? `With ${peer.displayName} · ${online.includes(peer.id) ? 'Online' : 'Offline'}`
             : 'Share the invitation to bring your friends here';
-    $('end').hidden = !['active', 'waiting'].includes(room.state);
+    $('end').hidden = ended || room.creatorId !== me.id;
+    $('leave').hidden = ended;
     $('chat-options').hidden = false;
     $('policy').hidden = false;
     $('invite-friends').hidden = ended || room.state !== 'active' || room.creatorId !== me.id;
@@ -329,6 +250,10 @@ function head() {
     $('composer').hidden = room.state !== 'active';
     $('typing').hidden = room.state !== 'active';
     $('composer-help').hidden = room.state !== 'active';
+    $('composer-help').textContent =
+        room.participants.length < 2
+            ? 'Invite someone to continue chatting.'
+            : 'A moment shared. Then gone. ◷';
     $('draft').placeholder =
         room.participants.length > 2
             ? 'Message the group…'
@@ -355,14 +280,6 @@ function head() {
     controls();
 }
 
-function senderColor(id) {
-    const hash = Array.from(id).reduce(
-        (value, character) => (value * 31 + character.codePointAt(0)) | 0,
-        0,
-    );
-    return `sender-color-${Math.abs(hash) % 6}`;
-}
-
 // Delivery means received; seen requires the visibility observer to confirm a view.
 let visibility = observeVisible($('messages'), (id) => {
     const m = messages.get(id);
@@ -373,157 +290,28 @@ let visibility = observeVisible($('messages'), (id) => {
     socket.send('seen', { roomId: room.id, messageId: id });
 });
 function render() {
-    visibility.clear();
-    const area = $('messages');
-    // Keep the first visible message in place while receipts and timers update the list.
-    const anchor = [...area.querySelectorAll('[data-id]')].find(
-        (el) => el.getBoundingClientRect().bottom > area.getBoundingClientRect().top,
-    );
-    const anchorId = anchor?.dataset.id;
-    const anchorTop = anchor?.getBoundingClientRect().top;
-    const near = area.scrollHeight - area.scrollTop - area.clientHeight < 100;
-    const previous = area.scrollTop;
-    const oldHeight = area.scrollHeight;
-    area.replaceChildren();
-    if (!room) {
-        const box = document.createElement('div');
-        box.className = 'empty';
-        const title = document.createElement('h2');
-        title.textContent = 'Your next conversation starts here.';
-        const description = document.createElement('p');
-        description.textContent = 'Create a chat and share its invitation with your friends.';
-        const create = document.createElement('button');
-        create.id = 'empty-create';
-        create.className = 'primary';
-        create.textContent = 'Create a chat';
-        create.onclick = showCreate;
-        box.append(title, description, create);
-        area.append(box);
-        return;
-    }
-    const current = [...messages.values()]
-        .filter((m) => m.body && Date.parse(m.disappearsAt) > now())
-        .sort((a, b) => a.sequence - b.sequence);
-    const roomPending = [...pending].filter(([, item]) => item.roomId === room.id);
-    if (!current.length && !roomPending.length) {
-        const box = document.createElement('div');
-        box.className = 'empty';
-        const h = document.createElement('h2');
-        h.textContent = ['closed', 'expired'].includes(room.state)
-            ? 'This moment has passed.'
-            : 'The conversation starts here.';
-        const p = document.createElement('p');
-        p.textContent = ['closed', 'expired'].includes(room.state)
-            ? 'Message content is gone. Start a new room whenever you like.'
-            : 'Send a thought. It doesn’t have to stay forever.';
-        box.append(h, p);
-        area.append(box);
-    }
-    let previousMessage;
-    for (const m of current) {
-        const row = document.createElement('div');
-        row.className = 'bubble-row' + (m.senderId === me.id ? ' own' : '');
-        row.dataset.id = m.id;
-        const grouped =
-            previousMessage?.senderId === m.senderId &&
-            Date.parse(m.acceptedAt) - Date.parse(previousMessage.acceptedAt) < 120000;
-        row.classList.toggle('grouped', grouped);
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        const body = document.createElement('div');
-        body.className = 'bubble';
-        // Treat message content as plain text, including any HTML-like characters.
-        body.textContent = m.body;
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        const status = document.createElement(m.senderId === me.id ? 'button' : 'span');
-        if (m.senderId === me.id) {
-            status.className = 'receipt-button';
-            status.setAttribute('aria-label', `View receipt details: ${receiptLabel(m)}`);
-            status.onclick = () => {
-                receiptMessageId = m.id;
-                renderReceiptDetails();
-                $('receipts-dialog').showModal();
-            };
-        }
-        status.textContent =
-            m.senderId === me.id
-                ? receiptLabel(m)
-                : new Date(m.acceptedAt).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                  });
-        meta.append(status);
-        if (m.senderId !== me.id && room.participants.length > 2) {
-            const name =
-                room.participants.find((p) => p.id === m.senderId)?.displayName || 'Group member';
-            const avatar = document.createElement('span');
-            avatar.className = `sender-avatar ${senderColor(m.senderId)}`;
-            avatar.textContent = name.slice(0, 1).toUpperCase();
-            avatar.setAttribute('aria-hidden', 'true');
-            row.append(avatar);
-            row.classList.add('group-message');
-            if (!grouped) {
-                const author = document.createElement('span');
-                author.className = `message-author ${senderColor(m.senderId)}`;
-                author.textContent = name;
-                content.append(author);
-            }
-        }
-        content.append(body, meta);
-        row.append(content);
-        previousMessage = m;
-        area.append(row);
-        if (m.senderId !== me.id && !(m.seenGuestIds || []).includes(me.id)) {
-            visibility.watch(row);
-        }
-        if (m.senderId !== me.id && !delivered.has(m.id) && connected) {
-            delivered.add(m.id);
-            socket.send('delivered', { roomId: room.id, messageId: m.id });
-        }
-    }
-    for (const [id, p] of roomPending) {
-        const row = document.createElement('div');
-        row.className = 'bubble-row own';
-        const body = document.createElement('div');
-        body.className = 'bubble';
-        body.textContent = p.body;
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.textContent =
-            p.state === 'sending'
-                ? 'Sending…'
-                : p.state === 'unconfirmed'
-                  ? 'Not confirmed · server has no record of this send'
-                  : 'Checking whether this was sent…';
-        if (p.state === 'unconfirmed' || p.checkFailed) {
-            const retry = document.createElement('button');
-            retry.textContent = p.verified ? 'Retry' : 'Check status';
-            retry.disabled = !connected || !synced || !navigator.onLine;
-            retry.onclick = () => (p.verified ? retrySend(id) : verifyPending(id));
-            meta.append(retry);
-        }
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        content.append(body, meta);
-        row.append(content);
-        area.append(row);
-    }
-    if (near) {
-        area.scrollTop = area.scrollHeight;
-    } else {
-        const restored = [...area.querySelectorAll('[data-id]')].find(
-            (el) => el.dataset.id === anchorId,
-        );
-        if (restored) {
-            area.scrollTop += restored.getBoundingClientRect().top - anchorTop;
-        } else {
-            area.scrollTop =
-                previous + (area.scrollHeight < oldHeight ? area.scrollHeight - oldHeight : 0);
-        }
-        $('new-messages').hidden = false;
-    }
-    renderReceiptDetails();
+    renderMessages({
+        $,
+        room,
+        me,
+        messages,
+        pending,
+        connected,
+        synced,
+        visibility,
+        delivered,
+        socket,
+        now,
+        remaining,
+        showCreate,
+        receiptLabel,
+        renderReceiptDetails,
+        setReceiptMessageId: (id) => {
+            receiptMessageId = id;
+        },
+        retrySend,
+        verifyPending,
+    });
 }
 
 function remaining(deadline) {
@@ -554,6 +342,7 @@ async function open(id) {
     generation++;
     room = rooms.find((r) => r.id === id) || { id, participants: [] };
     messages.clear();
+    $('message-announcements').textContent = '';
     seen.clear();
     delivered.clear();
     unreadRooms.delete(id);
@@ -628,8 +417,13 @@ async function reconcile() {
         if (e.category === 'resynchronize') {
             dirty = true;
         } else {
-            if (e.status === 404 || e.status === 410) {
+            if (e.status === 404) {
+                removeLocalRoom(id);
+                return;
+            }
+            if (e.status === 410) {
                 messages.clear();
+                $('message-announcements').textContent = '';
                 forgetRoom(room.id);
                 room.state = 'closed';
                 head();
@@ -650,6 +444,11 @@ async function reconcile() {
 
 // Apply ordered events when possible; recover revision gaps with a fresh snapshot.
 function event(e) {
+    if (e.type === 'room.left') {
+        removeLocalRoom(e.roomId);
+        list().catch(fail);
+        return;
+    }
     if (e.type === 'message.accepted') acceptPending(e.data.operationId);
     if (e.roomId !== room?.id) {
         if (
@@ -661,7 +460,10 @@ function event(e) {
             unreadRooms.add(e.roomId);
             renderRooms();
             if (connected) {
-                socket.send('delivered', { roomId: e.roomId, messageId: e.data.id });
+                socket.send('delivered', {
+                    roomId: e.roomId,
+                    messageId: e.data.id,
+                });
             }
         }
         if (e.type === 'room.updated' || e.type === 'room.closed') {
@@ -707,6 +509,7 @@ function event(e) {
     }
     if (e.type === 'room.closed') {
         messages.clear();
+        $('message-announcements').textContent = '';
         forgetRoom(room.id);
         room.state = 'closed';
         $('typing').textContent = '';
@@ -721,6 +524,17 @@ function event(e) {
     revision = Math.max(revision, e.revision);
     if (e.type === 'message.accepted' || e.type === 'message.available') {
         const m = e.data;
+        if (
+            !messages.has(m.id) &&
+            m.senderId !== me.id &&
+            m.body &&
+            Date.parse(m.disappearsAt) > now()
+        ) {
+            const name =
+                room.participants.find((p) => p.id === m.senderId)?.displayName || 'Someone';
+            $('message-announcements').textContent =
+                `${name} sent a new message. Message ${m.sequence}.`;
+        }
         if (m.body && Date.parse(m.disappearsAt) > now()) {
             messages.set(m.id, m);
         } else {
@@ -892,7 +706,9 @@ $('entry-form').onsubmit = async (event) => {
         if (!me) me = await api('/guests', 'POST', { displayName: $('name').value });
         else if (editingName) me = await api('/me', 'PATCH', { displayName: $('name').value });
         if (joinSecret) {
-            const joined = await api('/invites/redeem', 'POST', { secret: joinSecret });
+            const joined = await api('/invites/redeem', 'POST', {
+                secret: joinSecret,
+            });
             requestedRoom = joined.id;
             joinSecret = null;
         }
@@ -935,6 +751,7 @@ $('create-form').onsubmit = async (e) => {
         const created = await api('/rooms', 'POST', {
             ttlSeconds: Number($('ttl').value),
             title: $('chat-name').value,
+            readGraceSeconds: Number($('read-grace').value),
         });
         invitations.set(created.room.id, created.invite);
         $('create-dialog').close();
@@ -1019,7 +836,10 @@ $('fresh-chat').onclick = () => {
     showCreate();
     $('fresh-start-note').hidden = false;
     $('chat-name').value = room?.title || '';
-    if (room) $('ttl').value = String(room.ttlSeconds);
+    if (room) {
+        $('ttl').value = String(room.ttlSeconds);
+        $('read-grace').value = String(room.readGraceSeconds);
+    }
 };
 
 function renderMembers() {
@@ -1043,88 +863,6 @@ function renderMembers() {
         `${room?.participants.length || 0} of ${room?.maxParticipants || 20} people. New members see messages sent after they join.`;
 }
 
-function showInvite() {
-    if (!room || !['waiting', 'active'].includes(room.state)) {
-        return;
-    }
-    const invitation = invitations.get(room.id);
-    const available = invitation && Date.parse(invitation.expiresAt) > now();
-    for (const prefix of ['', 'group-']) {
-        $(prefix + 'invite-link').value = available
-            ? location.origin + '/#invite=' + invitation.secret
-            : '';
-        $(prefix + 'invite-link').hidden = !available;
-        $(prefix + 'invite-label').hidden = !available;
-        const copied = (copiedInvitations.get(room.id + prefix) || 0) > performance.now();
-        $(prefix + 'copy').textContent = copied
-            ? '✓ Copied!'
-            : available
-              ? 'Copy invite link'
-              : 'Create invitation';
-        $(prefix + 'regenerate').hidden = !available;
-        $(prefix + 'invite-expiry').textContent = available
-            ? 'Everyone can reuse this link · expires in ' + remaining(invitation.expiresAt)
-            : 'Create one invitation and share it with all your friends.';
-    }
-}
-
-async function generateInvite() {
-    if (!room || !['waiting', 'active'].includes(room.state) || room.creatorId !== me.id) {
-        return;
-    }
-    const id = room.id;
-    copiedInvitations.delete(id);
-    copiedInvitations.delete(id + 'group-');
-    for (const prefix of ['', 'group-']) {
-        $(prefix + 'copy').disabled = true;
-        $(prefix + 'regenerate').disabled = true;
-    }
-    try {
-        const invitation = await api('/rooms/' + id + '/invites', 'POST');
-        invitations.set(id, invitation);
-        if (room?.id === id) {
-            showInvite();
-        }
-    } finally {
-        if (room?.id === id) {
-            for (const prefix of ['', 'group-']) {
-                $(prefix + 'copy').disabled = false;
-                $(prefix + 'regenerate').disabled = false;
-            }
-        }
-    }
-}
-
-async function copyInvitation(prefix = '') {
-    const id = room?.id;
-    try {
-        let invitation = invitations.get(id);
-        if (!invitation || Date.parse(invitation.expiresAt) <= now()) {
-            await generateInvite();
-            if (room?.id !== id) return;
-            invitation = invitations.get(id);
-        }
-        if (!invitation) return;
-        await navigator.clipboard.writeText(location.origin + '/#invite=' + invitation.secret);
-        copiedInvitations.set(id + prefix, performance.now() + 3000);
-        if (room?.id === id) showInvite();
-        toast('Invite link copied. Share it with your friends.');
-    } catch (error) {
-        if (room?.id !== id) return;
-        const invitation = invitations.get(id);
-        if (!invitation || Date.parse(invitation.expiresAt) <= now()) {
-            fail(error);
-            return;
-        }
-        $(prefix + 'invite-link').focus();
-        $(prefix + 'invite-link').select();
-        toast('Select and copy the invite link above.');
-    }
-}
-$('copy').onclick = () => copyInvitation();
-$('group-copy').onclick = () => copyInvitation('group-');
-$('regenerate').onclick = () => generateInvite().catch(fail);
-$('group-regenerate').onclick = () => generateInvite().catch(fail);
 $('invite-friends').onclick = () => {
     showInvite();
     $('invite-dialog').showModal();
@@ -1152,6 +890,53 @@ $('confirm-end').onclick = async () => {
         await list();
     } catch (e) {
         fail(e);
+    }
+};
+function removeLocalRoom(id) {
+    forgetRoom(id);
+    invitations.delete(id);
+    showInvite();
+    unreadRooms.delete(id);
+    rooms = rooms.filter((r) => r.id !== id);
+    if (room?.id === id) {
+        generation++;
+        room = null;
+        messages.clear();
+        $('message-announcements').textContent = '';
+        seen.clear();
+        delivered.clear();
+        online = [];
+        loadingRoom = false;
+        $('typing').textContent = '';
+        for (const name of ['leave', 'invite', 'members', 'receipts']) $(name + '-dialog').close();
+        $('chat-actions').hidePopover();
+        $('chat-details').hidePopover();
+        history.replaceState(null, '', location.pathname);
+        controls();
+        render();
+        $('new-room').focus();
+    }
+    renderRooms();
+}
+$('leave').onclick = () => {
+    $('chat-actions').hidePopover();
+    $('leave-owner-note').hidden = room.creatorId !== me.id;
+    $('leave-dialog').showModal();
+};
+$('cancel-leave').onclick = () => $('leave-dialog').close();
+$('confirm-leave').onclick = async () => {
+    const id = room?.id;
+    if (!id) return;
+    $('confirm-leave').disabled = true;
+    try {
+        await api('/rooms/' + id + '/leave', 'POST');
+        removeLocalRoom(id);
+        await list();
+        toast('You left the chat.');
+    } catch (e) {
+        fail(e);
+    } finally {
+        $('confirm-leave').disabled = false;
     }
 };
 $('logout').onclick = () => $('logout-dialog').showModal();
@@ -1272,7 +1057,11 @@ function publishPending(id) {
     item.state = 'sending';
     item.verified = false;
     try {
-        socket.send('send', { roomId: item.roomId, operationId: id, body: item.body });
+        socket.send('send', {
+            roomId: item.roomId,
+            operationId: id,
+            body: item.body,
+        });
         item.timer = setTimeout(() => {
             if (pending.get(id) !== item) return;
             item.state = 'checking';
@@ -1294,7 +1083,12 @@ $('composer').onsubmit = (event) => {
     event.preventDefault();
     if ($('send').disabled) return;
     const id = crypto.randomUUID();
-    pending.set(id, { roomId: room.id, body: $('draft').value, state: 'sending', verified: false });
+    pending.set(id, {
+        roomId: room.id,
+        body: $('draft').value,
+        state: 'sending',
+        verified: false,
+    });
     drafts.delete(room.id);
     $('draft').value = '';
     $('draft').style.height = 'auto';
@@ -1322,6 +1116,7 @@ setInterval(() => {
     for (const [id, m] of messages) {
         if (Date.parse(m.disappearsAt) <= now()) {
             messages.delete(id);
+            $('message-announcements').textContent = '';
             changed = true;
         }
     }
@@ -1346,6 +1141,7 @@ setInterval(() => {
         Date.parse(room.expiresAt) <= now()
     ) {
         messages.clear();
+        $('message-announcements').textContent = '';
         forgetRoom(room.id);
         room.state = 'expired';
         changed = true;
@@ -1353,6 +1149,10 @@ setInterval(() => {
     }
     if (changed) {
         render();
+    }
+    for (const timer of $('messages').querySelectorAll('.message-timer')) {
+        const label = `${timer.classList.contains('expiring') ? 'Disappears' : 'Unread timer'} in ${remaining(timer.dataset.deadline)}`;
+        if (timer.textContent !== label) timer.textContent = label;
     }
     showInvite();
     updateRoomWarning();
@@ -1368,6 +1168,7 @@ setInterval(() => {
 async function foreground() {
     if (document.visibilityState === 'visible' && me) {
         messages.clear();
+        $('message-announcements').textContent = '';
         render();
         seen.clear();
         delivered.clear();
@@ -1379,6 +1180,7 @@ document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
         visibility.clear();
         messages.clear();
+        $('message-announcements').textContent = '';
         $('messages').replaceChildren();
     } else {
         foreground();
