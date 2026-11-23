@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+        <meta name="theme-color" content="#6d4aff" />
+        <meta name="referrer" content="no-referrer" />
+        <title>BlinkChat · Here for a moment</title>
+        <link rel="stylesheet" href="/styles.css" />
+        <script defer src="/vendor/stomp-7.2.1.min.js"></script>
+        <script type="module" src="/app.js"></script>
+    </head>
+    <body>
+        <!-- Guest entry and session setup. -->
+        <main id="welcome" class="welcome">
+            <div class="intro">
+                <a class="brand" href="/">✳ BlinkChat</a
+                ><span class="eyebrow">GOOD CONVERSATIONS. LIGHT FOOTPRINT.</span>
+                <h1>Here for<br />a moment.</h1>
+                <p>
+                    A private space for a short conversation.<br />Say what matters. Let it
+                    disappear.
+                </p>
+                <div class="promise">
+                    <span>01 &nbsp; No account needed</span><span>02 &nbsp; Bring your friends</span
+                    ><span>03 &nbsp; Messages with a timer</span>
+                </div>
+            </div>
+            <section class="entry card">
+                <span class="badge">A LITTLE LESS PERMANENT</span>
+                <h2 id="entry-title">Make room for a conversation.</h2>
+                <p id="entry-copy">
+                    Choose your name, create one chat, and send the same invitation to all your
+                    friends.
+                </p>
+                <section
+                    id="join-preview"
+                    class="join-preview"
+                    aria-label="Invitation preview"
+                    hidden
+                >
+                    <strong id="preview-title"></strong>
+                    <p id="preview-people"></p>
+                    <p id="preview-policy"></p>
+                    <p id="preview-error" role="status" hidden></p>
+                    <button id="retry-preview" type="button" hidden>Try preview again</button>
+                </section>
+                <form id="entry-form">
+                    <div id="name-fields">
+                        <label for="name">Your display name</label
+                        ><input
+                            id="name"
+                            name="name"
+                            autocomplete="nickname"
+                            minlength="2"
+                            maxlength="60"
+                            placeholder="What should we call you?"
+                            required
+                        />
+                    </div>
+                    <p id="returning-guest" hidden></p>
+                    <button id="change-name" type="button" class="text-button" hidden>
+                        Change name
+                    </button>
+                    <button class="primary" id="enter" disabled>Continue</button>
+                </form>
+                <button id="skip-invite" class="text-button" type="button" hidden>
+                    Continue without joining
+                </button>
+                <p class="privacy">
+                    Messages disappear 10 seconds after everyone has viewed them, or when their
+                    timer ends. The server processes messages. Participants can still copy or
+                    screenshot them.
+                </p>
+            </section>
+            <footer>
+                Made with love ❤️ by
+                <a
+                    href="https://www.linkedin.com/in/fahad-naseem-23b320396/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >Fahad Naseem</a>
+            </footer>
+        </main>
+
+        <!-- Conversation list and the currently selected chat. -->
+        <main id="shell" class="shell" hidden>
+            <aside id="sidebar">
+                <a class="brand" href="/">✳ BlinkChat</a>
+                <div class="profile">
+                    <div class="avatar" id="initial"></div>
+                    <div>
+                        <strong id="guest-name"></strong><small>Guest · here for today</small>
+                    </div>
+                    <button id="logout" class="session-exit">End session</button>
+                </div>
+                <button id="new-room" class="primary">＋ New chat</button>
+                <p id="chat-list-help" class="chat-list-help">
+                    Already chatting? Select that chat below. Use Invite friends to add people to
+                    the same chat.
+                </p>
+                <div class="list-heading">YOUR CHATS <span id="room-count">0</span></div>
+                <nav id="rooms" aria-label="Conversations"></nav>
+                <div class="sidebar-note">
+                    <span>◷ &nbsp; A fresh start, every time.</span>
+                    <p>Rooms last up to 24 hours. Your messages never need to stay that long.</p>
+                </div>
+            </aside>
+            <section class="conversation">
+                <header>
+                    <button id="back" class="icon mobile" aria-label="Back to conversations">
+                        ‹
+                    </button>
+                    <div class="avatar" id="peer-avatar">✳</div>
+                    <div class="heading">
+                        <h2 id="room-title">Your next conversation</h2>
+                        <span id="presence">Choose a chat or invite your friend.</span>
+                    </div>
+                    <div class="chat-header-actions">
+                        <button id="members-button" hidden>Members</button
+                        ><button id="invite-friends" hidden>Invite friends</button>
+                        <button
+                            id="chat-options"
+                            class="icon"
+                            popovertarget="chat-actions"
+                            aria-label="Chat options"
+                            hidden
+                        >
+                            ⋯
+                        </button>
+                        <div id="chat-actions" class="chat-popover action-popover" popover>
+                            <button id="show-details">Chat details</button>
+                            <button id="end" class="danger" hidden>End chat</button>
+                        </div>
+                    </div>
+                </header>
+                <div class="conversation-status">
+                    <button id="policy" class="policy" popovertarget="chat-details" hidden>
+                        Message timer details
+                    </button>
+                    <span id="connection" class="connection" role="status">Connecting…</span>
+                </div>
+                <div id="connection-banner" class="connection-banner" hidden></div>
+                <section id="room-expiry" class="room-expiry" hidden aria-label="Room expiry">
+                    <p id="room-expiry-text" role="status"></p>
+                    <button id="fresh-chat">Start a fresh chat</button>
+                    <small
+                        >A new room needs a new invitation. Messages and members won’t carry
+                        over.</small
+                    >
+                </section>
+                <section
+                    id="chat-details"
+                    class="chat-popover"
+                    popover
+                    aria-labelledby="details-title"
+                >
+                    <h2 id="details-title">Chat details</h2>
+                    <dl>
+                        <dt>Chat code</dt>
+                        <dd id="chat-code"></dd>
+                        <dt>After everyone views</dt>
+                        <dd id="detail-grace"></dd>
+                        <dt>Unread messages</dt>
+                        <dd id="detail-ttl"></dd>
+                        <dt>Room ends</dt>
+                        <dd id="detail-end"></dd>
+                    </dl>
+                    <p>
+                        Messages may disappear sooner if the room ends. New members only see
+                        messages sent after they join.
+                    </p>
+                    <button popovertarget="chat-details" popovertargetaction="hide">Done</button>
+                </section>
+                <div id="chat-loading" class="chat-loading" role="status" hidden>
+                    <span class="sr-only">Loading conversation…</span>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+                <div id="messages" class="messages" aria-label="Messages">
+                    <div class="empty">
+                        <div class="empty-icon">✳</div>
+                        <h2>Some things are better<br />in the moment.</h2>
+                        <p>Select a chat from your list, or create one and invite your friend.</p>
+                        <button id="empty-create" class="primary">Create a chat</button>
+                    </div>
+                </div>
+                <section id="waiting" class="waiting" hidden>
+                    <div class="empty-icon">✳</div>
+                    <span class="badge">INVITE YOUR FRIENDS</span>
+                    <h2 id="waiting-title">Waiting for your friends</h2>
+                    <p id="waiting-chat-name"></p>
+                    <div id="waiting-code" class="waiting-code"></div>
+                    <label id="invite-label" for="invite-link">Invitation for this chat</label
+                    ><input
+                        id="invite-link"
+                        placeholder="Select New link to generate an invitation"
+                        readonly
+                    />
+                    <div class="invite-actions">
+                        <button id="copy" class="primary">Copy invite link</button>
+                    </div>
+                    <small id="invite-expiry"></small>
+                    <details class="invite-help">
+                        <summary>How invitations work</summary>
+                        <ol class="invite-steps">
+                            <li>Copy this link and send it to your friends.</li>
+                            <li>Each friend chooses a name and selects Join chat.</li>
+                            <li>Everyone arrives in this same conversation.</li>
+                        </ol>
+                        <p>
+                            One link works for the whole group. New members see messages sent after
+                            they join.
+                        </p>
+                        <button id="regenerate">Replace invitation</button>
+                        <p class="secondary-note">
+                            Replacing the link stops new guests using the previous one.
+                        </p>
+                    </details>
+                </section>
+                <button id="new-messages" class="new-messages" hidden>New messages</button>
+                <div id="typing" class="typing" aria-live="polite"></div>
+                <form id="composer">
+                    <label class="sr-only" for="draft">Message</label
+                    ><textarea
+                        id="draft"
+                        placeholder="A message for this moment…"
+                        rows="1"
+                        maxlength="4000"
+                        disabled
+                    ></textarea
+                    ><span id="count"></span
+                    ><button id="send" class="primary" disabled>Send</button>
+                </form>
+                <div id="composer-help" class="composer-note">
+                    A moment shared. Then gone. &nbsp; ◷
+                </div>
+            </section>
+        </main>
+
+        <!-- Dialogs share the active conversation state from app.js. -->
+        <dialog id="create-dialog">
+            <form id="create-form">
+                <span class="badge">START SOMETHING TEMPORARY</span>
+                <h2>Start a group chat with your friends.</h2>
+                <p id="fresh-start-note" hidden>
+                    This starts a separate conversation. Share its new invitation with your friends;
+                    messages and members won’t carry over.
+                </p>
+                <label for="chat-name">Chat name (optional)</label
+                ><input
+                    id="chat-name"
+                    maxlength="40"
+                    placeholder="e.g. Weekend plans"
+                    autocomplete="off"
+                /><button id="resume-waiting" type="button" class="resume-waiting" hidden></button>
+                <p>
+                    Messages disappear 10 seconds after everyone has viewed them.<br />The room
+                    itself lasts up to 24 hours.
+                </p>
+                <label for="ttl">Unread message lifetime</label
+                ><select id="ttl">
+                    <option value="60">1 minute</option>
+                    <option value="300">5 minutes</option>
+                    <option value="3600" selected>1 hour</option>
+                    <option value="86400">24 hours</option>
+                </select>
+                <div class="dialog-actions">
+                    <button type="button" id="cancel-create">Cancel</button
+                    ><button id="create-submit" class="primary">Create chat</button>
+                </div>
+            </form>
+        </dialog>
+        <dialog id="end-dialog">
+            <h2 id="end-title">End this chat?</h2>
+            <p>
+                This ends the room for everyone and removes all message content. It cannot be
+                reopened.
+            </p>
+            <div class="dialog-actions">
+                <button id="cancel-end">Keep chatting</button
+                ><button id="confirm-end" class="primary">End for everyone</button>
+            </div>
+        </dialog>
+        <dialog id="invite-dialog">
+            <h2 id="group-invite-title">Invite friends</h2>
+            <p>
+                Send the same link to everyone you want in this chat. The creator can replace it to
+                stop new people joining through the old link.
+            </p>
+            <label id="group-invite-label" for="group-invite-link">Reusable invitation</label
+            ><input id="group-invite-link" readonly />
+            <div class="invite-actions">
+                <button id="group-copy" class="primary">Copy invitation</button>
+            </div>
+            <small id="group-invite-expiry"></small>
+            <details class="invite-help">
+                <summary>Manage invitation</summary>
+                <p>
+                    Replace this link to stop new guests using the previous one. Current members
+                    stay in the chat.
+                </p>
+                <button id="group-regenerate">Replace invitation</button>
+            </details>
+            <div class="dialog-actions"><button id="close-invite">Done</button></div>
+        </dialog>
+        <dialog id="members-dialog">
+            <h2>People in this chat</h2>
+            <p id="members-description"></p>
+            <ul id="members-list" class="members-list"></ul>
+            <div class="dialog-actions"><button id="close-members">Done</button></div>
+        </dialog>
+        <dialog id="receipts-dialog" aria-labelledby="receipts-title">
+            <h2 id="receipts-title">Who has viewed this message?</h2>
+            <p id="receipts-description"></p>
+            <ul id="receipts-list" class="members-list"></ul>
+            <div class="dialog-actions"><button id="close-receipts">Done</button></div>
+        </dialog>
+        <dialog id="logout-dialog" aria-labelledby="logout-title">
+            <h2 id="logout-title">End your guest session?</h2>
+            <p>
+                You’ll lose access to your chats as this guest. Your drafts and unconfirmed messages
+                on this page will be cleared.
+            </p>
+            <p>
+                Other people can keep chatting. Rejoining with an invitation creates a new guest,
+                who cannot see messages sent before they join.
+            </p>
+            <p>
+                Unconfirmed messages may already have been sent. Ending your session does not remove
+                them from other people’s chats.
+            </p>
+            <div class="dialog-actions">
+                <button id="cancel-logout">Keep chatting</button>
+                <button id="confirm-logout" class="primary">End session</button>
+            </div>
+        </dialog>
+        <div id="toast" role="status" aria-live="polite" hidden></div>
+    </body>
+</html>
