@@ -53,10 +53,11 @@ if (joinSecret) {
     history.replaceState(null, '', location.pathname);
 }
 
-const { showInvite, generateInvite } = createInvitations({
+const { showInvite, generateInvite, openInvite } = createInvitations({
     $,
     getRoom: () => room,
     getMe: () => me,
+    getRooms: () => rooms,
     invitations,
     copiedInvitations,
     now: () => now(),
@@ -113,7 +114,6 @@ function expireSession() {
     $('shell').hidden = true;
     $('welcome').hidden = false;
     $('invite-dialog').close();
-    $('members-dialog').close();
     $('receipts-dialog').close();
     $('logout-dialog').close();
     $('create-dialog').close();
@@ -121,7 +121,6 @@ function expireSession() {
     $('leave-dialog').close();
     receiptMessageId = null;
     $('invite-link').value = '';
-    $('group-invite-link').value = '';
     invitations.clear();
     showInvite();
     copiedInvitations.clear();
@@ -153,27 +152,32 @@ function controls() {
         ? 'Offline'
         : connected
           ? synced
-              ? 'Connected · up to date'
+              ? 'Connected'
               : 'Syncing…'
           : navigator.onLine
             ? 'Reconnecting…'
             : 'Offline';
     $('connection').classList.toggle('ready', navigator.onLine && connected && synced);
+    $('connection').dataset.state = connected && synced && navigator.onLine ? 'ready' : 'pending';
     $('connection-banner').hidden = connected && navigator.onLine;
     $('connection-banner').textContent = navigator.onLine
-        ? 'Reconnecting… Your draft stays on this page.'
-        : 'You’re offline. Reconnect to continue. Your draft stays on this page.';
+        ? 'Reconnecting… Your draft is safe here.'
+        : 'Offline. Your draft is safe here.';
     $('chat-loading').hidden = !loadingRoom;
     $('messages').setAttribute('aria-busy', String(loadingRoom));
     if (room) {
         $('messages').hidden = loadingRoom || room.state === 'waiting';
         $('waiting').hidden = loadingRoom || room.state !== 'waiting';
         $('composer').hidden = loadingRoom || room.state !== 'active';
-        $('composer-help').hidden = loadingRoom || room.state !== 'active';
+        $('composer-help').hidden =
+            loadingRoom || room.state !== 'active' || room.participants.length >= 2;
         $('typing').hidden = loadingRoom || room.state !== 'active';
     } else {
-        $('room-title').textContent = 'Your next conversation';
-        $('presence').textContent = 'Choose a chat or invite your friends.';
+        $('chat-info').disabled = true;
+        $('chat-info').setAttribute('aria-label', 'Chat details');
+        delete $('chat-info').dataset.members;
+        $('room-title').textContent = 'Your chats';
+        $('presence').textContent = 'Pick a chat to get started.';
         $('peer-avatar').textContent = '✳';
         $('messages').hidden = false;
         for (const id of [
@@ -181,8 +185,6 @@ function controls() {
             'composer',
             'composer-help',
             'typing',
-            'policy',
-            'members-button',
             'invite-friends',
             'chat-options',
             'room-expiry',
@@ -223,22 +225,22 @@ function head() {
         : room.participants.length > 2
           ? `${room.participants.length} members · ${online.length} online`
           : peer
-            ? `With ${peer.displayName} · ${online.includes(peer.id) ? 'Online' : 'Offline'}`
-            : 'Share the invitation to bring your friends here';
+            ? online.includes(peer.id)
+                ? 'Online'
+                : 'Offline'
+            : '';
     $('end').hidden = ended || room.creatorId !== me.id;
     $('leave').hidden = ended;
     $('chat-options').hidden = false;
-    $('policy').hidden = false;
-    $('invite-friends').hidden = ended || room.state !== 'active' || room.creatorId !== me.id;
-    $('members-button').hidden = ended;
-    $('members-button').textContent = `Members (${room.participants.length})`;
+    $('invite-friends').hidden = ended || room.creatorId !== me.id;
+    $('chat-info').disabled = false;
+    $('chat-info').setAttribute('aria-label', `Chat details for ${chatLabel(room)}`);
+    $('chat-info').dataset.members = room.participants.length;
     if (ended) {
         $('invite-dialog').close();
-        $('members-dialog').close();
     }
     const ttl =
         room.ttlSeconds < 3600 ? `${room.ttlSeconds / 60} min` : `${room.ttlSeconds / 3600} hr`;
-    $('policy').textContent = `◷ Disappears ${room.readGraceSeconds}s after everyone views`;
     $('detail-grace').textContent = `Disappears after ${room.readGraceSeconds} seconds`;
     $('detail-ttl').textContent = `Available for up to ${ttl}`;
     $('detail-end').textContent = new Date(room.expiresAt).toLocaleString([], {
@@ -249,26 +251,22 @@ function head() {
     $('messages').hidden = room.state === 'waiting';
     $('composer').hidden = room.state !== 'active';
     $('typing').hidden = room.state !== 'active';
-    $('composer-help').hidden = room.state !== 'active';
+    $('composer-help').hidden = room.state !== 'active' || room.participants.length >= 2;
     $('composer-help').textContent =
-        room.participants.length < 2
-            ? 'Invite someone to continue chatting.'
-            : 'A moment shared. Then gone. ◷';
+        room.participants.length < 2 ? 'Invite someone to continue chatting.' : '';
     $('draft').placeholder =
         room.participants.length > 2
             ? 'Message the group…'
             : peer
               ? `Message ${peer.displayName}…`
               : 'Type your message…';
-    $('waiting-title').textContent = 'Waiting for your friends';
-    $('waiting-chat-name').textContent = chatLabel(room);
-    $('waiting-code').textContent = `One link · Up to ${room.maxParticipants} people`;
-    $('invite-label').textContent = `Invitation for ${chatLabel(room)}`;
+    $('invite-label').textContent = 'Invite link';
     $('end-title').textContent = `End “${chatLabel(room)}”?`;
     if (ended) {
         invitations.delete(room.id);
     }
-    $('group-invite-title').textContent = `Invite friends to ${chatLabel(room)}`;
+    $('invite-title').textContent = 'Invite';
+    $('waiting-invite').hidden = ended || room.creatorId !== me.id;
     renderMembers();
     const index = rooms.findIndex((r) => r.id === room.id);
     if (index >= 0) {
@@ -335,6 +333,7 @@ async function open(id) {
         } catch {}
     }
     rememberDraft();
+    $('invite-dialog').close();
     $('receipts-dialog').close();
     receiptMessageId = null;
     $('chat-actions').hidePopover();
@@ -352,8 +351,6 @@ async function open(id) {
     $('invite-link').value = '';
     $('copy').disabled = false;
     $('regenerate').disabled = false;
-    $('group-copy').disabled = false;
-    $('group-regenerate').disabled = false;
     $('new-messages').hidden = true;
     $('shell').classList.add('chat-open');
     synced = false;
@@ -626,16 +623,17 @@ function lifetimeLabel(seconds) {
 
 function configureEntry() {
     const returning = Boolean(me && joinSecret);
-    $('entry-title').textContent = joinSecret
-        ? 'You’re invited. Join the moment.'
-        : 'Make room for a conversation.';
+    $('entry-title').textContent = joinSecret ? 'Join chat' : 'Start chatting';
     $('entry-copy').textContent = joinSecret
-        ? 'Review this chat, then choose whether to join. Opening the link does not add you.'
-        : 'Choose your name, create one chat, and send the same invitation to all your friends.';
+        ? 'Join with a nickname. No account needed.'
+        : 'Choose a nickname or leave it blank for a random one.';
     $('name-fields').hidden = returning && !editingName;
-    $('name').required = !returning || editingName;
+    $('name').required = editingName;
+    document.querySelector('label[for="name"]').textContent = editingName
+        ? 'Nickname'
+        : 'Nickname (optional)';
     $('returning-guest').hidden = !returning;
-    $('returning-guest').textContent = returning ? `You’re joining as ${me.displayName}.` : '';
+    $('returning-guest').textContent = returning ? `Joining as ${me.displayName}` : '';
     $('change-name').hidden = !returning || editingName;
     $('enter').textContent =
         returning && !editingName
@@ -664,9 +662,9 @@ async function loadInvitationPreview() {
         if (secret !== joinSecret) return;
         $('preview-title').textContent = preview.title;
         $('preview-people').textContent =
-            `${preview.participantCount} of ${preview.maxParticipants} people · Room ends ${new Date(preview.roomExpiresAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}`;
+            `${preview.participantCount} of ${preview.maxParticipants} people`;
         $('preview-policy').textContent =
-            `Messages disappear ${preview.readGraceSeconds}s after every original recipient views them, or after ${lifetimeLabel(preview.ttlSeconds)} unread. You won’t see messages sent before you join.`;
+            `${preview.readGraceSeconds}s after viewing · ${lifetimeLabel(preview.ttlSeconds)} if unread. New messages only.`;
         previewReady = true;
     } catch (error) {
         if (secret !== joinSecret) return;
@@ -703,8 +701,10 @@ $('entry-form').onsubmit = async (event) => {
     entryReady = false;
     configureEntry();
     try {
-        if (!me) me = await api('/guests', 'POST', { displayName: $('name').value });
-        else if (editingName) me = await api('/me', 'PATCH', { displayName: $('name').value });
+        if (!me) {
+            const alias = 'Guest ' + crypto.randomUUID().slice(0, 6).toUpperCase();
+            me = await api('/guests', 'POST', { displayName: $('name').value.trim() || alias });
+        } else if (editingName) me = await api('/me', 'PATCH', { displayName: $('name').value });
         if (joinSecret) {
             const joined = await api('/invites/redeem', 'POST', {
                 secret: joinSecret,
@@ -724,17 +724,11 @@ $('entry-form').onsubmit = async (event) => {
 
 // Chat creation and invitation actions.
 function showCreate() {
+    $('message-settings').open = false;
+    $('ttl').value = '3600';
+    $('read-grace').value = '10';
     $('fresh-start-note').hidden = true;
-    const waiting = rooms.find((r) => r.state === 'waiting');
-    $('resume-waiting').hidden = !waiting;
-    if (waiting) {
-        $('resume-waiting').textContent = `Open your waiting chat: ${chatLabel(waiting)}`;
-        $('resume-waiting').onclick = () => {
-            $('create-dialog').close();
-            open(waiting.id).catch(fail);
-        };
-    }
-    $('create-submit').textContent = waiting ? 'Create a separate chat' : 'Create chat';
+    $('create-submit').textContent = 'Create chat';
     $('create-dialog').showModal();
 }
 $('new-room').onclick = showCreate;
@@ -808,6 +802,8 @@ function renderReceiptDetails() {
         row.append(name, state);
         $('receipts-list').append(row);
     }
+    const expiry = `Expires in ${remaining(message.disappearsAt)}`;
+    if ($('receipts-expiry').textContent !== expiry) $('receipts-expiry').textContent = expiry;
     $('receipts-description').textContent = message.seenAt
         ? 'Everyone this message was sent to has viewed it. The short countdown has started; it may end sooner when the room closes.'
         : `The ${room.readGraceSeconds}s countdown starts after all ${recipients.length} original ${recipients.length === 1 ? 'recipient has' : 'recipients have'} viewed this message. Until then, its unread timer applies. Later members do not join this message’s audience.`;
@@ -860,23 +856,20 @@ function renderMembers() {
         $('members-list').append(row);
     }
     $('members-description').textContent =
-        `${room?.participants.length || 0} of ${room?.maxParticipants || 20} people. New members see messages sent after they join.`;
+        `${room?.participants.length || 0} of ${room?.maxParticipants || 20} people. New members see new messages only.`;
 }
 
-$('invite-friends').onclick = () => {
-    showInvite();
-    $('invite-dialog').showModal();
-};
+$('invite-friends').onclick = openInvite;
+$('waiting-invite').onclick = openInvite;
 $('close-invite').onclick = () => $('invite-dialog').close();
-$('members-button').onclick = () => {
-    renderMembers();
-    $('members-dialog').showModal();
-};
-$('close-members').onclick = () => $('members-dialog').close();
-$('show-details').onclick = () => {
+function showDetails() {
+    if (!room) return;
     $('chat-actions').hidePopover();
+    renderMembers();
     $('chat-details').showPopover();
-};
+}
+$('chat-info').onclick = showDetails;
+$('show-details').onclick = showDetails;
 $('end').onclick = () => {
     $('chat-actions').hidePopover();
     $('end-dialog').showModal();
@@ -908,7 +901,7 @@ function removeLocalRoom(id) {
         online = [];
         loadingRoom = false;
         $('typing').textContent = '';
-        for (const name of ['leave', 'invite', 'members', 'receipts']) $(name + '-dialog').close();
+        for (const name of ['leave', 'invite', 'receipts']) $(name + '-dialog').close();
         $('chat-actions').hidePopover();
         $('chat-details').hidePopover();
         history.replaceState(null, '', location.pathname);
@@ -1149,10 +1142,6 @@ setInterval(() => {
     }
     if (changed) {
         render();
-    }
-    for (const timer of $('messages').querySelectorAll('.message-timer')) {
-        const label = `${timer.classList.contains('expiring') ? 'Disappears' : 'Unread timer'} in ${remaining(timer.dataset.deadline)}`;
-        if (timer.textContent !== label) timer.textContent = label;
     }
     showInvite();
     updateRoomWarning();
