@@ -45,9 +45,9 @@ export function renderMessages({
         const box = document.createElement('div');
         box.className = 'empty';
         const title = document.createElement('h2');
-        title.textContent = 'Your next conversation starts here.';
+        title.textContent = 'Your chats, for the moment.';
         const description = document.createElement('p');
-        description.textContent = 'Create a chat and share its invitation with your friends.';
+        description.textContent = 'Start one. Invite someone.';
         const create = document.createElement('button');
         create.id = 'empty-create';
         create.className = 'primary';
@@ -67,11 +67,11 @@ export function renderMessages({
         const h = document.createElement('h2');
         h.textContent = ['closed', 'expired'].includes(room.state)
             ? 'This moment has passed.'
-            : 'The conversation starts here.';
+            : 'Say hello.';
         const p = document.createElement('p');
         p.textContent = ['closed', 'expired'].includes(room.state)
-            ? 'Message content is gone. Start a new room whenever you like.'
-            : 'Send a thought. It doesn’t have to stay forever.';
+            ? 'Start a new chat whenever you like.'
+            : 'Messages won’t stay forever.';
         box.append(h, p);
         area.append(box);
     }
@@ -86,42 +86,39 @@ export function renderMessages({
         row.classList.toggle('grouped', grouped);
         const content = document.createElement('div');
         content.className = 'message-content';
-        const body = document.createElement('div');
+        const body = document.createElement('button');
+        body.type = 'button';
         body.className = 'bubble';
-        // Treat message content as plain text, including any HTML-like characters.
-        body.textContent = m.body;
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        const status = document.createElement(m.senderId === me.id ? 'button' : 'span');
-        if (m.senderId === me.id) {
-            status.className = 'receipt-button';
-            status.dataset.action = 'receipt';
-            status.setAttribute('aria-label', `View receipt details: ${receiptLabel(m)}`);
-            status.onclick = () => {
-                setReceiptMessageId(m.id);
-                renderReceiptDetails();
-                $('receipts-dialog').showModal();
-            };
-        }
-        status.textContent =
-            m.senderId === me.id
-                ? receiptLabel(m)
-                : new Date(m.acceptedAt).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                  });
-        meta.append(status);
-        const timer = document.createElement('button');
-        timer.className = 'message-timer' + (m.seenAt ? ' expiring' : '');
-        timer.dataset.action = 'timer';
-        timer.dataset.deadline = m.disappearsAt;
-        timer.textContent = `${m.seenAt ? 'Disappears' : 'Unread timer'} in ${remaining(m.disappearsAt)}`;
-        timer.onclick = () => {
+        body.dataset.action = 'details';
+        body.title = 'Message details';
+        body.onclick = () => {
             setReceiptMessageId(m.id);
             renderReceiptDetails();
             $('receipts-dialog').showModal();
         };
-        meta.append(timer);
+        // Treat message content as plain text, including any HTML-like characters.
+        body.textContent = m.body;
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const time = document.createElement('time');
+        time.dateTime = m.acceptedAt;
+        time.textContent = new Date(m.acceptedAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        meta.append(time);
+        if (m.senderId === me.id) {
+            const total = m.recipientCount || 1;
+            const viewed = (m.seenCount || 0) >= total;
+            const deliveredToAll = (m.deliveredCount || 0) >= total;
+            const receipt = document.createElement('span');
+            receipt.className = 'receipt' + (viewed ? ' seen' : '');
+            receipt.setAttribute('role', 'img');
+            receipt.setAttribute('aria-label', receiptLabel(m));
+            receipt.title = receiptLabel(m);
+            receipt.textContent = viewed || deliveredToAll ? '✓✓' : '✓';
+            meta.append(receipt);
+        }
         if (m.senderId !== me.id && room.participants.length > 2) {
             const name =
                 room.participants.find((p) => p.id === m.senderId)?.displayName || 'Group member';
