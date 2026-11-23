@@ -40,21 +40,21 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await join(sam, 'Sam');
         await host.locator('#invite-friends').click();
         assert.equal(
-            await host.locator('#group-invite-link').inputValue(),
+            await host.locator('#invite-link').inputValue(),
             invitation,
             'The same invitation must survive the first join',
         );
         await host.locator('#close-invite').click();
         await join(riley, 'Riley');
         await host.waitForFunction(
-            () => document.querySelector('#members-button').textContent === 'Members (3)',
+            () => document.querySelector('#chat-info').dataset.members === '3',
         );
         for (const page of [host, sam, riley]) {
             assert.equal(new URL(page.url()).hash.slice(6), roomId);
         }
-        await host.locator('#members-button').click();
+        await host.locator('#chat-info').click();
         assert.equal(await host.locator('#members-list li').count(), 3);
-        await host.locator('#close-members').click();
+        await host.locator('#close-details').click();
         console.log(
             'PASS: three independent guests joined the exact same link; members and active-chat invitation work',
         );
@@ -130,7 +130,10 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         assert.ok(
             Date.parse(after.messages[0].disappearsAt) - Date.parse(after.serverTime) <= 10000,
         );
-        await riley.locator('.message-timer.expiring').waitFor();
+        assert.equal(await riley.locator('.message-timer').count(), 0);
+        await riley.locator('.bubble').first().click();
+        await riley.locator('#receipts-expiry').waitFor();
+        await riley.locator('#close-receipts').click();
         assert.equal(
             await riley.evaluate(() => document.documentElement.scrollWidth > innerWidth),
             false,
@@ -150,8 +153,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             { timeout: 16000 },
         );
         await riley.reload();
-        await riley.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await riley.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
         assert.ok(
             !(await riley.locator('#messages').textContent()).includes(
