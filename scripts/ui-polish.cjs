@@ -57,7 +57,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         const first = await create('Weekend plans');
         assert.equal(await page.locator('.room-group-label').count(), 0);
         assert.equal(await page.locator('.room-item-code').count(), 0);
-        await page.getByRole('heading', { name: 'Invite someone', exact: true }).waitFor();
+        await page.getByRole('heading', { name: 'No messages yet', exact: true }).waitFor();
         await page.locator('#waiting-invite').click();
         await page.locator('#copy').click();
         await page.getByRole('button', { name: '✓ Copied!', exact: true }).waitFor();
@@ -78,9 +78,10 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             await page
                 .locator('#chat-actions > button:visible')
                 .evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())),
-            ['Chat details', 'Leave chat', 'End for everyone'],
+            ['Invite', 'Leave chat', 'End for everyone'],
         );
-        await page.locator('#show-details').click();
+        await page.keyboard.press('Escape');
+        await page.locator('#chat-info').click();
         assert.equal(await page.locator('#chat-details').isVisible(), true);
         assert.match(await page.locator('#chat-code').textContent(), /^Chat [0-9A-F]{6}$/);
         assert.match(await page.locator('#detail-ttl').textContent(), /1 hr/);
@@ -164,14 +165,11 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         assert.equal(await page.locator('.bubble-row.grouped').count(), 1);
         assert.equal(await page.locator('.message-timer').count(), 0);
         assert.equal(await page.locator('#invite-dialog').count(), 1);
-        const colors = await page
-            .locator('#messages .sender-avatar')
-            .evaluateAll((avatars) =>
-                avatars.map((a) => [...a.classList].find((c) => c.startsWith('sender-color-'))),
-            );
-        assert.equal(colors.length, 2);
-        assert.equal(colors[0], colors[1], 'The same sender keeps the same avatar color');
+        assert.equal(await page.locator('#messages .sender-avatar').count(), 0);
+        assert.equal(await page.locator('#invite-friends').isVisible(), false);
+        await page.locator('#chat-options').click();
         assert.equal(await page.locator('#invite-friends').isVisible(), true);
+        await page.keyboard.press('Escape');
         assert.equal(await page.locator('#end').isVisible(), false);
         if (process.env.BLINK_SCREENSHOT_DIR) {
             await page.setViewportSize({ width: 1280, height: 800 });

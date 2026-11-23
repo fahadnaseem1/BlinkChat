@@ -67,12 +67,13 @@ export function renderMessages({
         const h = document.createElement('h2');
         h.textContent = ['closed', 'expired'].includes(room.state)
             ? 'This moment has passed.'
-            : 'Say hello.';
-        const p = document.createElement('p');
-        p.textContent = ['closed', 'expired'].includes(room.state)
-            ? 'Start a new chat whenever you like.'
-            : 'Messages won’t stay forever.';
-        box.append(h, p);
+            : 'No messages yet';
+        box.append(h);
+        if (['closed', 'expired'].includes(room.state)) {
+            const p = document.createElement('p');
+            p.textContent = 'Start a new chat whenever you like.';
+            box.append(p);
+        }
         area.append(box);
     }
     let previousMessage;
@@ -119,18 +120,13 @@ export function renderMessages({
             receipt.textContent = viewed || deliveredToAll ? '✓✓' : '✓';
             meta.append(receipt);
         }
-        if (m.senderId !== me.id && room.participants.length > 2) {
+        if (m.senderId !== me.id) {
             const name =
                 room.participants.find((p) => p.id === m.senderId)?.displayName || 'Group member';
-            const avatar = document.createElement('span');
-            avatar.className = `sender-avatar ${senderColor(m.senderId)}`;
-            avatar.textContent = name.slice(0, 1).toUpperCase();
-            avatar.setAttribute('aria-hidden', 'true');
-            row.append(avatar);
             row.classList.add('group-message');
             if (!grouped) {
                 const author = document.createElement('span');
-                author.className = `message-author ${senderColor(m.senderId)}`;
+                author.className = 'message-author';
                 author.textContent = name;
                 content.append(author);
             }

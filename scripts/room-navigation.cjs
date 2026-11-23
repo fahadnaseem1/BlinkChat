@@ -124,6 +124,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         );
         assert.equal(await first.locator('#room-title').textContent(), 'Movie night');
         assert.equal(await first.locator('#copy').textContent(), 'Create link');
+        await first.locator('#chat-options').click();
         await first.locator('#invite-friends').click();
         await first.locator('#copy').click();
         await first.waitForFunction(() =>

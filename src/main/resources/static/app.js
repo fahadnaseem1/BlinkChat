@@ -147,7 +147,6 @@ function controls() {
     const n = Array.from($('draft').value).length;
     $('draft').disabled = loadingRoom || room?.state !== 'active' || room.participants.length < 2;
     $('send').disabled = !ready || !$('draft').value.trim() || n > 2000;
-    $('count').textContent = n > 1800 ? `${2000 - n}` : '';
     $('connection').textContent = !navigator.onLine
         ? 'Offline'
         : connected
@@ -169,21 +168,16 @@ function controls() {
         $('messages').hidden = loadingRoom || room.state === 'waiting';
         $('waiting').hidden = loadingRoom || room.state !== 'waiting';
         $('composer').hidden = loadingRoom || room.state !== 'active';
-        $('composer-help').hidden =
-            loadingRoom || room.state !== 'active' || room.participants.length >= 2;
         $('typing').hidden = loadingRoom || room.state !== 'active';
     } else {
         $('chat-info').disabled = true;
         $('chat-info').setAttribute('aria-label', 'Chat details');
         delete $('chat-info').dataset.members;
         $('room-title').textContent = 'Your chats';
-        $('presence').textContent = 'Pick a chat to get started.';
-        $('peer-avatar').textContent = '✳';
         $('messages').hidden = false;
         for (const id of [
             'waiting',
             'composer',
-            'composer-help',
             'typing',
             'invite-friends',
             'chat-options',
@@ -219,16 +213,6 @@ function head() {
     const ended = ['closed', 'expired'].includes(room.state);
     $('room-title').textContent = chatLabel(room);
     $('chat-code').textContent = `Chat ${chatCode(room)}`;
-    $('peer-avatar').textContent = peer?.displayName.slice(0, 1).toUpperCase() || '✳';
-    $('presence').textContent = ended
-        ? 'This chat has ended'
-        : room.participants.length > 2
-          ? `${room.participants.length} members · ${online.length} online`
-          : peer
-            ? online.includes(peer.id)
-                ? 'Online'
-                : 'Offline'
-            : '';
     $('end').hidden = ended || room.creatorId !== me.id;
     $('leave').hidden = ended;
     $('chat-options').hidden = false;
@@ -251,9 +235,6 @@ function head() {
     $('messages').hidden = room.state === 'waiting';
     $('composer').hidden = room.state !== 'active';
     $('typing').hidden = room.state !== 'active';
-    $('composer-help').hidden = room.state !== 'active' || room.participants.length >= 2;
-    $('composer-help').textContent =
-        room.participants.length < 2 ? 'Invite someone to continue chatting.' : '';
     $('draft').placeholder =
         room.participants.length > 2
             ? 'Message the group…'
@@ -862,12 +843,10 @@ $('waiting-invite').onclick = openInvite;
 $('close-invite').onclick = () => $('invite-dialog').close();
 function showDetails() {
     if (!room) return;
-    $('chat-actions').hidePopover();
     renderMembers();
     $('chat-details').showPopover();
 }
 $('chat-info').onclick = showDetails;
-$('show-details').onclick = showDetails;
 $('end').onclick = () => {
     $('chat-actions').hidePopover();
     $('end-dialog').showModal();

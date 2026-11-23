@@ -96,13 +96,10 @@
                     <button id="back" class="icon mobile" aria-label="Back to conversations">
                         ‹
                     </button>
-                    <div class="avatar" id="peer-avatar">✳</div>
                     <button id="chat-info" class="heading" aria-label="Chat details" disabled>
                         <span id="room-title" class="chat-title">Your chats</span>
-                        <span id="presence">Pick a chat to get started.</span>
                     </button>
                     <div class="chat-header-actions">
-                        <button id="invite-friends" hidden>Invite</button>
                         <button
                             id="chat-options"
                             class="icon"
@@ -113,7 +110,7 @@
                             ⋯
                         </button>
                         <div id="chat-actions" class="chat-popover action-popover" popover>
-                            <button id="show-details">Chat details</button>
+                            <button id="invite-friends" hidden>Invite</button>
                             <button id="leave" hidden>Leave chat</button>
                             <button id="end" class="danger" hidden>End for everyone</button>
                         </div>
@@ -185,7 +182,7 @@
                     </div>
                 </div>
                 <section id="waiting" class="waiting" hidden>
-                    <h2>Invite someone</h2>
+                    <h2>No messages yet</h2>
                     <button id="waiting-invite" class="primary">Invite</button>
                 </section>
                 <button id="new-messages" class="new-messages" hidden>New messages</button>
@@ -199,10 +196,8 @@
                         maxlength="4000"
                         disabled
                     ></textarea
-                    ><span id="count"></span
-                    ><button id="send" class="primary" disabled>Send</button>
+                    ><button id="send" class="primary" aria-label="Send" disabled>➤</button>
                 </form>
-                <div id="composer-help" class="composer-note" hidden></div>
             </section>
         </main>
 

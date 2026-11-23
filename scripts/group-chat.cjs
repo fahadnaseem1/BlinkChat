@@ -38,6 +38,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             await page.waitForFunction(() => !document.querySelector('#draft').disabled);
         }
         await join(sam, 'Sam');
+        await host.locator('#chat-options').click();
         await host.locator('#invite-friends').click();
         assert.equal(
             await host.locator('#invite-link').inputValue(),
