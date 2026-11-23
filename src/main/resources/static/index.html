@@ -68,9 +68,9 @@
                     Continue without joining
                 </button>
                 <p class="privacy">
-                    Messages disappear 10 seconds after everyone has viewed them, or when their
-                    timer ends. The server processes messages. Participants can still copy or
-                    screenshot them.
+                    Messages disappear after everyone has viewed them and the chat’s countdown ends,
+                    or when their unread timer ends. The server processes messages. Participants can
+                    still copy or screenshot them.
                 </p>
             </section>
             <footer>
@@ -79,7 +79,8 @@
                     href="https://www.linkedin.com/in/fahad-naseem-23b320396/"
                     target="_blank"
                     rel="noopener noreferrer"
-                >Fahad Naseem</a>
+                    >Fahad Naseem</a
+                >
             </footer>
         </main>
 
@@ -130,7 +131,8 @@
                         </button>
                         <div id="chat-actions" class="chat-popover action-popover" popover>
                             <button id="show-details">Chat details</button>
-                            <button id="end" class="danger" hidden>End chat</button>
+                            <button id="leave" hidden>Leave chat</button>
+                            <button id="end" class="danger" hidden>End for everyone</button>
                         </div>
                     </div>
                 </header>
@@ -178,7 +180,14 @@
                     <div class="skeleton-line"></div>
                     <div class="skeleton-line"></div>
                 </div>
-                <div id="messages" class="messages" aria-label="Messages">
+                <div
+                    id="message-announcements"
+                    class="sr-only"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                ></div>
+                <div id="messages" class="messages" aria-label="Messages" tabindex="-1">
                     <div class="empty">
                         <div class="empty-icon">✳</div>
                         <h2>Some things are better<br />in the moment.</h2>
@@ -200,8 +209,17 @@
                     />
                     <div class="invite-actions">
                         <button id="copy" class="primary">Copy invite link</button>
+                        <button id="share" type="button" hidden>Share invitation</button>
                     </div>
                     <small id="invite-expiry"></small>
+                    <details id="invite-qr-details" class="invite-qr" hidden>
+                        <summary>Show invitation QR code</summary>
+                        <canvas
+                            id="invite-qr"
+                            role="img"
+                            aria-label="Scan to join this chat"
+                        ></canvas>
+                    </details>
                     <details class="invite-help">
                         <summary>How invitations work</summary>
                         <ol class="invite-steps">
@@ -256,9 +274,15 @@
                     autocomplete="off"
                 /><button id="resume-waiting" type="button" class="resume-waiting" hidden></button>
                 <p>
-                    Messages disappear 10 seconds after everyone has viewed them.<br />The room
+                    Choose how long messages remain after everyone has viewed them.<br />The room
                     itself lasts up to 24 hours.
                 </p>
+                <label for="read-grace">After everyone views</label>
+                <select id="read-grace">
+                    <option value="10">10 seconds</option>
+                    <option value="30">30 seconds</option>
+                    <option value="60">1 minute</option>
+                </select>
                 <label for="ttl">Unread message lifetime</label
                 ><select id="ttl">
                     <option value="60">1 minute</option>
@@ -283,6 +307,22 @@
                 ><button id="confirm-end" class="primary">End for everyone</button>
             </div>
         </dialog>
+        <dialog id="leave-dialog" aria-labelledby="leave-title">
+            <h2 id="leave-title">Leave this chat?</h2>
+            <p>
+                You’ll lose access and clear your drafts on this page. Other members can keep
+                chatting. Your existing messages keep their original timers. Rejoining requires a
+                new guest session.
+            </p>
+            <p id="leave-owner-note" hidden>
+                Ownership passes to the next member and the old invitation is revoked. If you’re
+                alone, the chat ends.
+            </p>
+            <div class="dialog-actions">
+                <button id="cancel-leave">Keep chatting</button
+                ><button id="confirm-leave" class="primary">Leave chat</button>
+            </div>
+        </dialog>
         <dialog id="invite-dialog">
             <h2 id="group-invite-title">Invite friends</h2>
             <p>
@@ -293,8 +333,17 @@
             ><input id="group-invite-link" readonly />
             <div class="invite-actions">
                 <button id="group-copy" class="primary">Copy invitation</button>
+                <button id="group-share" type="button" hidden>Share invitation</button>
             </div>
             <small id="group-invite-expiry"></small>
+            <details id="group-invite-qr-details" class="invite-qr" hidden>
+                <summary>Show invitation QR code</summary>
+                <canvas
+                    id="group-invite-qr"
+                    role="img"
+                    aria-label="Scan to join this chat"
+                ></canvas>
+            </details>
             <details class="invite-help">
                 <summary>Manage invitation</summary>
                 <p>
@@ -303,19 +352,25 @@
                 </p>
                 <button id="group-regenerate">Replace invitation</button>
             </details>
-            <div class="dialog-actions"><button id="close-invite">Done</button></div>
+            <div class="dialog-actions">
+                <button id="close-invite">Done</button>
+            </div>
         </dialog>
         <dialog id="members-dialog">
             <h2>People in this chat</h2>
             <p id="members-description"></p>
             <ul id="members-list" class="members-list"></ul>
-            <div class="dialog-actions"><button id="close-members">Done</button></div>
+            <div class="dialog-actions">
+                <button id="close-members">Done</button>
+            </div>
         </dialog>
         <dialog id="receipts-dialog" aria-labelledby="receipts-title">
             <h2 id="receipts-title">Who has viewed this message?</h2>
             <p id="receipts-description"></p>
             <ul id="receipts-list" class="members-list"></ul>
-            <div class="dialog-actions"><button id="close-receipts">Done</button></div>
+            <div class="dialog-actions">
+                <button id="close-receipts">Done</button>
+            </div>
         </dialog>
         <dialog id="logout-dialog" aria-labelledby="logout-title">
             <h2 id="logout-title">End your guest session?</h2>
