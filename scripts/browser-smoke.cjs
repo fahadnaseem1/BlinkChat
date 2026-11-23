@@ -34,11 +34,13 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await first.locator('#enter').click();
         await first.locator('#new-room').click();
         await first.locator('#create-form button.primary').click();
+        await first.locator('#waiting-invite').click();
         await first.locator('#invite-link').waitFor({ state: 'visible' });
         await first.waitForFunction(() =>
             document.querySelector('#invite-link').value.includes('#invite='),
         );
         const invitation = await first.locator('#invite-link').inputValue();
+        await first.locator('#close-invite').click();
         await second.goto(invitation);
         await second.locator('#name').fill('Sam');
         await second.locator('#enter').click();
@@ -51,7 +53,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await first.locator('#send').click();
         await second.bringToFront();
         await second.getByText(text, { exact: true }).waitFor();
-        await first.getByText('Seen', { exact: true }).waitFor();
+        await first.locator('.receipt[aria-label="Seen"]').waitFor();
         assert.equal(
             await second.locator('.bubble b').count(),
             0,
@@ -70,8 +72,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             { timeout: 16000 },
         );
         await second.reload();
-        await second.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await second.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
         assert.ok(!(await second.locator('#messages').textContent()).includes(text));
         console.log('PASS: read expiry and refresh cannot restore content');
