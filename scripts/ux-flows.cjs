@@ -124,6 +124,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await second.locator('#change-name').click();
         await second.locator('#name').fill('Sammy');
         await second.locator('#enter').click();
+        await second.waitForFunction(() => document.querySelector('#guest-name').textContent === 'Sammy');
         await second.waitForFunction(() => !document.querySelector('#draft').disabled);
         const renamed = await (await guest.request.get(origin + '/api/me')).json();
         assert.equal(renamed.id, guestIdentity.id);
