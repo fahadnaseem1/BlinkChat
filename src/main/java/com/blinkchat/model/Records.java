@@ -82,6 +82,7 @@ public final class Records {
         public int slot;
 
         public Instant joinedAt;
+        public Instant leftAt;
 
         public Membership() {}
     }
