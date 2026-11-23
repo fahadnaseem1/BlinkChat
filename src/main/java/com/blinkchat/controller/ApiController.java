@@ -38,7 +38,7 @@ public class ApiController {
 
     public record Name(String displayName) {}
 
-    public record Create(long ttlSeconds, String title) {}
+    public record Create(long ttlSeconds, String title, Long readGraceSeconds) {}
 
     public record Invite(String secret) {}
 
@@ -118,7 +118,7 @@ public class ApiController {
 
     @PostMapping("/rooms")
     public Object create(@AuthenticationPrincipal GuestPrincipal p, @RequestBody Create c) {
-        return chat.create(p, c.ttlSeconds(), c.title());
+        return chat.create(p, c.ttlSeconds(), c.title(), c.readGraceSeconds());
     }
 
     @GetMapping({ "/rooms/{id}", "/rooms/{id}/messages" })
@@ -156,6 +156,12 @@ public class ApiController {
     @PostMapping("/invites/redeem")
     public Object redeem(@AuthenticationPrincipal GuestPrincipal p, @RequestBody Invite i) {
         return chat.redeem(p, i.secret());
+    }
+
+    @PostMapping("/rooms/{id}/leave")
+    public Object leave(@AuthenticationPrincipal GuestPrincipal p, @PathVariable String id) {
+        chat.leave(p, id);
+        return Map.of("ok", true);
     }
 
     @PostMapping("/rooms/{id}/close")
