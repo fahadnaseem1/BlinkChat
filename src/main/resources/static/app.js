@@ -8,6 +8,22 @@ import { observeVisible } from './visibility.js';
 
 // Session and conversation state stays in memory for the lifetime of this page.
 const $ = (id) => document.getElementById(id);
+function updateVisibleViewport() {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    document.documentElement.style.setProperty(
+        '--visible-viewport-height',
+        `${Math.round(viewport.height)}px`,
+    );
+    document.documentElement.style.setProperty(
+        '--visual-viewport-offset-top',
+        `${Math.round(viewport.offsetTop)}px`,
+    );
+}
+updateVisibleViewport();
+window.addEventListener('resize', updateVisibleViewport);
+window.visualViewport?.addEventListener('resize', updateVisibleViewport);
+window.visualViewport?.addEventListener('scroll', updateVisibleViewport);
 let me;
 let rooms = [];
 let room;

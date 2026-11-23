@@ -796,6 +796,13 @@ dialog p,
     .shell {
         display: block;
     }
+    .shell.chat-open {
+        position: fixed;
+        top: var(--visual-viewport-offset-top, 0px);
+        right: 0;
+        left: 0;
+        height: var(--visible-viewport-height, 100dvh);
+    }
     aside {
         height: 100dvh;
         padding: 16px 12px;
@@ -808,6 +815,7 @@ dialog p,
     }
     .shell.chat-open .conversation {
         display: flex;
+        height: 100%;
     }
     .mobile {
         display: block;
