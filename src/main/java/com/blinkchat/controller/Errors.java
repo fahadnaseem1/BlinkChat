@@ -1,7 +1,6 @@
 package com.blinkchat.controller;
 
 import com.blinkchat.service.Problem;
-import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
