@@ -11,6 +11,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         const hostContext = await browser.newContext({ viewport: { width: 360, height: 780 } });
         const guestContext = await browser.newContext();
         await hostContext.addInitScript(() => {
+            navigator.canShare = (data) => Boolean(data.files?.length);
             navigator.share = async (data) => {
                 window.sharedInvitation = data;
             };
@@ -23,10 +24,13 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             p.on('pageerror', (e) => errors.push(e.message));
         }
         await host.goto(origin);
-        await host.locator('#name').fill('Morgan');
         await host.locator('#enter').click();
+        await host.locator('#shell').waitFor({ state: 'visible' });
+        const hostAlias = await host.locator('#guest-name').textContent();
+        assert.match(hostAlias, /^Guest [0-9A-F]{6}$/);
         await host.locator('#new-room').click();
         await host.locator('#chat-name').fill('New controls');
+        await host.locator('#message-settings summary').click();
         await host.locator('#read-grace').selectOption('30');
         await host.locator('#create-submit').click();
         await host.waitForFunction(() =>
@@ -34,6 +38,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         );
         const invitation = await host.locator('#invite-link').inputValue();
         const roomId = new URL(host.url()).hash.slice(6);
+        await host.locator('#waiting-invite').click();
         await host.locator('#share').click();
         assert.equal(await host.evaluate(() => window.sharedInvitation.url), invitation);
         await host.locator('#invite-qr-details summary').click();
@@ -55,6 +60,48 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         });
         assert.equal(qrPixels.url, invitation);
         assert.ok(qrPixels.width >= 100 && qrPixels.dark);
+        await host.getByRole('button', { name: 'Share QR', exact: true }).click();
+        const sharedImage = await host.evaluate(async () => {
+            const file = window.sharedInvitation.files[0];
+            return {
+                name: file.name,
+                type: file.type,
+                signature: [...new Uint8Array(await file.arrayBuffer()).slice(0, 8)],
+            };
+        });
+        assert.equal(sharedImage.name, 'blinkchat-invitation.png');
+        assert.equal(sharedImage.type, 'image/png');
+        assert.deepEqual(sharedImage.signature, [137, 80, 78, 71, 13, 10, 26, 10]);
+        // Unsupported file sharing downloads the same PNG instead.
+        await host.evaluate(() => {
+            navigator.canShare = () => false;
+        });
+        const downloadReady = host.waitForEvent('download');
+        await host.locator('#qr-share').click();
+        const downloaded = await downloadReady;
+        assert.equal(downloaded.suggestedFilename(), 'blinkchat-invitation.png');
+        assert.ok(await downloaded.path());
+        await host.locator('#close-invite').click();
+        const anonymousContext = await browser.newContext();
+        const anonymous = await anonymousContext.newPage();
+        await anonymous.goto(invitation);
+        await anonymous.locator('#enter').click();
+        await anonymous.waitForFunction(() => !document.querySelector('#draft').disabled);
+        const joinedAlias = await anonymous.locator('#guest-name').textContent();
+        assert.match(joinedAlias, /^Guest [0-9A-F]{6}$/);
+        assert.notEqual(joinedAlias, hostAlias);
+        assert.equal(new URL(anonymous.url()).hash.slice(6), roomId);
+        await anonymous.locator('#chat-info').click();
+        assert.equal(await anonymous.locator('#members-list li').count(), 2);
+        await anonymous.locator('#close-details').click();
+        await anonymous.locator('#chat-options').click();
+        await anonymous.locator('#leave').click();
+        await anonymous.locator('#confirm-leave').click();
+        await anonymous.waitForFunction(() => !location.hash);
+        await anonymousContext.close();
+        console.log(
+            'PASS: optional random nicknames, anonymous invitation joining, clickable member count, QR image sharing and download',
+        );
         assert.equal(
             await host.evaluate(() => document.documentElement.scrollWidth > innerWidth),
             false,
@@ -80,18 +127,22 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         assert.equal(denied, 403);
         await host.locator('#draft').fill('Focus should survive a new message');
         await host.locator('#send').click();
-        await host.locator('.receipt-button').first().waitFor();
-        await host.locator('.receipt-button').first().focus();
+        await host.locator('.own[data-id] .bubble').first().waitFor();
+        await host.locator('.own[data-id] .bubble').first().focus();
         await guest.locator('#draft').fill('Accessible arrival');
         await guest.locator('#send').click();
         await host.getByText('Accessible arrival', { exact: true }).waitFor();
-        assert.equal(await host.evaluate(() => document.activeElement.dataset.action), 'receipt');
+        assert.equal(await host.evaluate(() => document.activeElement.dataset.action), 'details');
         assert.match(
             await host.locator('#message-announcements').textContent(),
             /Avery sent a new message/,
         );
         await guest.bringToFront();
-        await guest.waitForFunction(() => document.querySelector('.message-timer.expiring'));
+        await guest.locator('.bubble').first().click();
+        await guest.waitForFunction(() =>
+            document.querySelector('#receipts-description').textContent.includes('Everyone'),
+        );
+        assert.equal(await guest.locator('.message-timer').count(), 0);
         const snapshot = await (
             await hostContext.request.get(`${origin}/api/rooms/${roomId}`)
         ).json();
@@ -99,7 +150,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         const viewed = snapshot.messages.find((m) => m.seenAt);
         assert.ok(viewed);
         assert.ok(Date.parse(viewed.disappearsAt) - Date.parse(viewed.seenAt) <= 30000);
-        await guest.locator('.message-timer').first().click();
+        await guest.locator('#receipts-expiry').waitFor();
         assert.match(await guest.locator('#receipts-description').textContent(), /countdown/);
         await guest.locator('#close-receipts').click();
         console.log(
@@ -110,7 +161,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await guest.locator('#leave').click();
         await guest.locator('#confirm-leave').click();
         await guest.waitForFunction(
-            () => !location.hash && document.querySelector('#room-count').textContent === '0',
+            () => !location.hash && document.querySelectorAll('.room-item').length === 0,
         );
         assert.equal(await guest.locator('#draft').inputValue(), '');
         assert.equal(
@@ -118,14 +169,14 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             404,
         );
         await host.waitForFunction(
-            () => document.querySelector('#members-button').textContent === 'Members (1)',
+            () => document.querySelector('#chat-info').dataset.members === '1',
         );
         assert.equal(await host.locator('#draft').isDisabled(), true);
         await host.locator('#chat-options').click();
         await host.locator('#leave').click();
         await host.locator('#confirm-leave').click();
         await host.waitForFunction(
-            () => !location.hash && document.querySelector('#room-count').textContent === '0',
+            () => !location.hash && document.querySelectorAll('.room-item').length === 0,
         );
         assert.equal(await host.locator('#invite-qr').evaluate((c) => c.dataset.url), undefined);
         assert.deepEqual(errors, []);
