@@ -151,13 +151,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                                 if (
                                     data != null &&
                                     data.has("body") &&
-                                    (!Instant.parse(data.get("disappearsAt").asText()).isAfter(
+                                    (!Instant.parse(data.get("disappearsAt").asString()).isAfter(
                                         java.time.Instant.now()
                                     ) ||
                                         !connections.canDeliverBody(
                                             a.getSessionId(),
-                                            event.get("roomId").asText(),
-                                            data.get("id").asText()
+                                            event.get("roomId").asString(),
+                                            data.get("id").asString()
                                         ))
                                 ) {
                                     return null;
