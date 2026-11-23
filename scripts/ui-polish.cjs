@@ -37,10 +37,13 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await page.locator('#name').fill('Alex');
         await page.locator('#enter').click();
         await page.locator('#shell').waitFor({ state: 'visible' });
-        assert.equal(await page.locator('#chat-list-help').isVisible(), true);
+        assert.equal(await page.locator('#chat-list-help').count(), 0);
 
         async function create(title) {
             await page.locator('#new-room').click();
+            assert.equal(await page.locator('#message-settings').evaluate((el) => el.open), false);
+            assert.equal(await page.locator('#read-grace').isVisible(), false);
+            assert.equal(await page.locator('#ttl').isVisible(), false);
             await page.locator('#chat-name').fill(title);
             await page.locator('#create-submit').click();
             await page.waitForFunction(
@@ -52,32 +55,38 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             return new URL(page.url()).hash.slice(6);
         }
         const first = await create('Weekend plans');
-        assert.equal(await page.locator('#chat-list-help').isVisible(), false);
+        assert.equal(await page.locator('.room-group-label').count(), 0);
         assert.equal(await page.locator('.room-item-code').count(), 0);
-        assert.equal(
-            await page.locator('#waiting-title').textContent(),
-            'Waiting for your friends',
-        );
-        assert.equal(await page.locator('#regenerate').isVisible(), false);
+        await page.getByRole('heading', { name: 'Invite someone', exact: true }).waitFor();
+        await page.locator('#waiting-invite').click();
         await page.locator('#copy').click();
         await page.getByRole('button', { name: '✓ Copied!', exact: true }).waitFor();
         assert.equal(
             await page.evaluate(() => navigator.clipboard.readText()),
             await page.locator('#invite-link').inputValue(),
         );
-        await page.locator('#waiting .invite-help summary').click();
+        assert.equal(await page.locator('#invite-dialog #regenerate').count(), 0);
+        await page.locator('#close-invite').click();
+        await page.locator('#chat-info').click();
+        await page.locator('#invite-management summary').click();
         assert.equal(await page.locator('#regenerate').isVisible(), true);
-        await page.locator('#waiting .invite-help summary').click();
+        await page.locator('#close-details').click();
 
         assert.equal(await page.locator('#end').isVisible(), false);
         await page.locator('#chat-options').click();
+        assert.deepEqual(
+            await page
+                .locator('#chat-actions > button:visible')
+                .evaluateAll((nodes) => nodes.map((node) => node.textContent.trim())),
+            ['Chat details', 'Leave chat', 'End for everyone'],
+        );
         await page.locator('#show-details').click();
         assert.equal(await page.locator('#chat-details').isVisible(), true);
         assert.match(await page.locator('#chat-code').textContent(), /^Chat [0-9A-F]{6}$/);
         assert.match(await page.locator('#detail-ttl').textContent(), /1 hr/);
         await page.keyboard.press('Escape');
         assert.equal(await page.locator('#chat-details').isVisible(), false);
-        await page.locator('#policy').click();
+        await page.locator('#chat-info').click();
         assert.equal(await page.locator('#chat-details').isVisible(), true);
         await page.keyboard.press('Escape');
 
@@ -102,8 +111,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await page.locator('#connection-banner').waitFor({ state: 'visible' });
         assert.match(await page.locator('#connection-banner').textContent(), /offline/i);
         await context.setOffline(false);
-        await page.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await page.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
 
         if (process.env.BLINK_SCREENSHOT_DIR) {
@@ -139,7 +148,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             data: { secret: new URL(invitation).hash.slice(8) },
         });
         await friend.waitForFunction(
-            () => document.querySelector('#members-button').textContent === 'Members (3)',
+            () => document.querySelector('#chat-info').dataset.members === '3',
         );
         for (const text of ['See you this weekend', 'I will bring the snacks']) {
             await friend.locator('#draft').fill(text);
@@ -153,6 +162,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             'Consecutive messages share one author label',
         );
         assert.equal(await page.locator('.bubble-row.grouped').count(), 1);
+        assert.equal(await page.locator('.message-timer').count(), 0);
+        assert.equal(await page.locator('#invite-dialog').count(), 1);
         const colors = await page
             .locator('#messages .sender-avatar')
             .evaluateAll((avatars) =>
