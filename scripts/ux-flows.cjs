@@ -63,8 +63,8 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         }
         async function select(id) {
             await first.locator(`[data-room-id="${id}"]`).click();
-            await first.waitForFunction(() =>
-                document.querySelector('#connection').textContent.includes('up to date'),
+            await first.waitForFunction(
+                () => document.querySelector('#connection').dataset.state === 'ready',
             );
         }
         async function create(title) {
@@ -124,7 +124,9 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await second.locator('#change-name').click();
         await second.locator('#name').fill('Sammy');
         await second.locator('#enter').click();
-        await second.waitForFunction(() => document.querySelector('#guest-name').textContent === 'Sammy');
+        await second.waitForFunction(
+            () => document.querySelector('#guest-name').textContent === 'Sammy',
+        );
         await second.waitForFunction(() => !document.querySelector('#draft').disabled);
         const renamed = await (await guest.request.get(origin + '/api/me')).json();
         assert.equal(renamed.id, guestIdentity.id);
@@ -166,7 +168,7 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
             data: { secret: new URL(picnic.invitation).hash.slice(8) },
         });
         await first.waitForFunction(
-            () => document.querySelector('#members-button').textContent === 'Members (3)',
+            () => document.querySelector('#chat-info').dataset.members === '3',
         );
 
         dropNextSend = true;
@@ -183,11 +185,11 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await first.getByRole('button', { name: 'Retry', exact: true }).waitFor();
         assert.equal((await snapshot(picnic.id)).messages.length, 0);
         await first.getByRole('button', { name: 'Retry', exact: true }).click();
-        await first.locator('.receipt-button').waitFor();
+        await first.locator('.own[data-id] .bubble').waitFor();
         assert.equal(sentOperations.length, 2);
         assert.equal(sentOperations[0], sentOperations[1], 'Retries keep the same operation ID');
         assert.equal((await snapshot(picnic.id)).messages.length, 1);
-        await first.locator('.receipt-button').first().click();
+        await first.locator('.own[data-id] .bubble').first().click();
         assert.equal(await first.locator('#receipts-list li').count(), 2);
         assert.match(await first.locator('#receipts-list').textContent(), /Sammy/);
         assert.match(await first.locator('#receipts-list').textContent(), /Riley/);
@@ -286,11 +288,11 @@ const origin = process.env.BLINK_TEST_URL || 'http://localhost:8080';
         await first.locator('#name').fill('New guest');
         await first.locator('#enter').click();
         await first.locator('#shell').waitFor({ state: 'visible' });
-        await first.waitForFunction(() =>
-            document.querySelector('#connection').textContent.includes('up to date'),
+        await first.waitForFunction(
+            () => document.querySelector('#connection').dataset.state === 'ready',
         );
         assert.equal(await first.locator('.room-item').count(), 0);
-        assert.equal(await first.locator('#room-title').textContent(), 'Your next conversation');
+        assert.equal(await first.locator('#room-title').textContent(), 'Your chats');
         assert.equal(await first.locator('#composer').isVisible(), false);
         assert.equal(await first.locator('#empty-create').isVisible(), true);
         for (const id of [picnic.id, movies.id, freshId])
